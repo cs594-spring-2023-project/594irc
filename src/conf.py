@@ -2,6 +2,8 @@
 '   Contains common structures & global variables/config for both server.py and client.py.
 '''
 
+import sys
+
 # network config
 IRC_SERVER_PORT = 7734
 TIMEOUT = 5
@@ -74,3 +76,12 @@ class IrcPktKeepalive:
     '''
     def __init__(self, version=IRC_VERSION):
         self.header = IrcHeader(IRC_KEEPALIVE, 0, version)
+
+def close_on_err(sock, err):
+    ''' closes a socket and prints an error message
+    '   sock: socket to close
+    '   err: error message to print
+    '''
+    print(err)
+    sock.close()
+    sys.exit(1)
