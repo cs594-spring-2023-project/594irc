@@ -39,6 +39,10 @@ IRC_ERR_NAME_EXISTS = 0x16
 IRC_ERR_TOO_MANY_USERS = 0x17
 IRC_ERR_TOO_MANY_ROOMS = 0x18
 
+class IRCException(Exception):
+    def __init__(self, code):
+        self.irc_err_code = code
+
 # packet classes
 # could be more DRY and better organized with inheritance but this is simpler for now
 # construct_* packs packet contents into a bytestring;
@@ -70,13 +74,16 @@ class IrcPacketHello:
     '   payload: username
     '   version: IRC version in use by creator of message
     '''
-    payload_length = 32
+    name_length = 32
     version_length = 2
-    packet_length = payload_length + version_length
-    def __init__(self, username, version=IRC_VERSION):
-        self.header = IrcHeader(IRC_HELLO, IrcPacketHello.packet_length)
-        self.payload = username # should be 32 bytes
-        self.version = version # should be 2 bytes
+    payload_length = name_length + version_length
+    packet_length = IrcHeader.header_length + payload_length
+    def __init__(self, username=None, version=IRC_VERSION, length=None):
+        if length is None:
+            length = IrcPacketHello.payload_length
+        self.header = IrcHeader(IRC_HELLO, length)
+        self.payload = username
+        self.version = version
 
     def to_bytes(self):
         ''' returns a byte representation of the packet '''
@@ -89,6 +96,34 @@ class IrcPacketHello:
         version_bytes = self.version.to_bytes(IrcPacketHello.version_length, 'big')
         return header_bytes + payload_bytes + version_bytes
         
+    def from_bytes(self, received_hello):
+        ''' parses a byte representation of the packet and validates the results
+        '   returns an IrcPacketHello object
+        '   intended to consume the output of socket.recv()
+        '''
+        # define field boundaries
+        len_bytes = received_hello[1:IrcHeader.length_length+1]
+        name_bytes = received_hello[
+            IrcHeader.header_length : IrcHeader.header_length + IrcPacketHello.name_length
+        ]
+        version_bytes = received_hello[IrcHeader.header_length + IrcPacketHello.name_length:]
+        # parse bytes and validate
+        if received_hello[0] != IRC_HELLO:
+            raise IRCException(IRC_ERR_ILLEGAL_OPCODE)
+        if int.from_bytes(len_bytes, 'big') != IrcPacketHello.payload_length:
+            raise IRCException(IRC_ERR_ILLEGAL_LENGTH)
+        username_as_received = name_bytes.decode('ascii')
+        if not validate_label(username_as_received):
+            raise IRCException(IRC_ERR_ILLEGAL_LABEL)
+        username = strip_null_bytes(username_as_received)
+        version = int.from_bytes(version_bytes, 'big')
+        if version != IRC_VERSION:
+            raise IRCException(IRC_ERR_WRONG_VERSION)
+        # construct and return
+        self.header = IrcHeader(IRC_HELLO, IrcPacketHello.payload_length)
+        self.payload = username
+        self.version = version
+        return self
 
 class IrcPacketMsg:
     ''' has a header, holds the body of an IRC message
@@ -119,9 +154,10 @@ class IrcPktErr:
     '   may be nice to add a message field to err packets...
     '''
     errcode_length = 1
-    packet_length = errcode_length
+    payload_length = errcode_length
+    packet_length = IrcHeader.header_length + payload_length
     def __init__(self, payload):
-        self.header = IrcHeader(IRC_ERR, IrcPktErr.packet_length)
+        self.header = IrcHeader(IRC_ERR, IrcPktErr.payload_length)
         self.payload = payload # should be an IRC_ERR_* code, 1 byte
 
     def to_bytes(self):
@@ -143,9 +179,10 @@ class IrcPktKeepalive:
     '   header: irc_header object
     '   version: IRC version in use by creator of message
     '''
-    packet_length = 0
+    payload_length = 0
+    packet_length = IrcHeader.header_length + payload_length
     def __init__(self):
-        self.header = IrcHeader(IRC_KEEPALIVE, IrcPktKeepalive.packet_length)
+        self.header = IrcHeader(IRC_KEEPALIVE, IrcPktKeepalive.payload_length)
 
     def to_bytes(self):
         ''' returns a byte representation of the packet '''
@@ -199,3 +236,7 @@ def label_to_bytes(label):
     '   returns: byte representation of label
     '''
     return label.encode('ascii').ljust(32, b'\x00')
+
+def strip_null_bytes(string):
+    ''' strips null bytes from a string '''
+    return string.rstrip('\x00')

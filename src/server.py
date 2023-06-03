@@ -5,6 +5,7 @@
 
 from conf import *
 import socket
+import selectors
 
 '''
 server should
@@ -15,45 +16,60 @@ server should
 in addition to keepalives
 '''
 
-def receive_hello(client_sock):
-    ''' receives a hello packet from the client, parses and validates it,
-    '   returns the username
-    '   should we encode the field lengths in the packet classes...?
-    '''
-    received_hello = client_sock.recv(IrcHeader.header_length + IrcPacketHello.packet_length)
-    # parse from bytes
-    if received_hello[0] != IRC_HELLO:
-        close_on_err(client_sock, IRC_ERR_ILLEGAL_OPCODE)
-    if int.from_bytes(received_hello[1:IrcHeader.length_length+1], 'big') != IrcPacketHello.packet_length:
-        close_on_err(client_sock, IRC_ERR_ILLEGAL_LENGTH)
-    username = received_hello[5:37].decode('ascii')
-    # validate new username - better here or in consuming code?
-    if not validate_label(username):
-        close_on_err(client_sock, IRC_ERR_ILLEGAL_LABEL)
-    version = int.from_bytes(received_hello[37:39], 'big')
-    if version != IRC_VERSION:
-        close_on_err(client_sock, IRC_ERR_WRONG_VERSION)
-    return username
+def accept_new_user(sock, users, selector):
+    ''' accepts a new user and adds them to the users list '''
+    try:
+        client_sock, client_tcpip_tuple = sock.accept()
+        client_sock.settimeout(TIMEOUT)
+        received_hello_bytes = client_sock.recv(IrcPacketHello.packet_length)
+        username = IrcPacketHello().from_bytes(received_hello_bytes).payload
+        if username in users:
+            close_on_err(client_sock, IRC_ERR_NAME_EXISTS)
+        users.append(username)
+        selector.register(client_sock, selectors.EVENT_READ)
+        print(f"received hello from {username} at {client_tcpip_tuple}")
+    except IRCException as e:
+        close_on_err(client_sock, e.err_code)
+
+def add_user_to_room(sock, users, rooms, selector):
+    pass # TODO
+
+def remove_user_from_room(sock, users, rooms, selector):
+    pass # TODO
+
+def send_list(sock, users, rooms, selector):
+    pass # TODO
+
+def send_msg(sock, users, rooms, selector):
+    pass # TODO
+
+def react_to_client_err(sock, users, rooms, selector):
+    pass # TODO
 
 def main():
     ''' creates a socket to listen on, initializes rooms and users lists, and enters a loop '''
     rooms = []
     users = []
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(TIMEOUT)
-        sock.bind(('', IRC_SERVER_PORT))
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as main_sock:
+        sel = selectors.DefaultSelector()
+        sel.register(main_sock, selectors.EVENT_READ)
+        main_sock.settimeout(TIMEOUT)
+        main_sock.bind(('', IRC_SERVER_PORT))
         print("listening")
-        sock.listen()
+        main_sock.listen()
         print("looping")
         while True:
-            client_sock, client_addr = sock.accept()
-            client_sock.settimeout(TIMEOUT)
-            username = receive_hello(client_sock)
-            if username in users:
-                close_on_err(client_sock, IRC_ERR_NAME_EXISTS)
-            users.append(username)
-            print(f"received hello from {username}")
-
+            events = sel.select(timeout=TIMEOUT)
+            for key, _ in events:
+                if key.fileobj == main_sock: # new client (this should be a hello pkt)
+                    accept_new_user(main_sock, users, sel)
+                else: # established client
+                    # (this should be a keepalive, msg, err, join, leave, or list pkt)
+                    client_sock = key.fileobj
+                    client_sock.recv(IrcHeader.header_length)
+                    # Determine what kind of packet this is and how much more to recv
+                    # recv the rest of the packet and process it
+                    # TODO
 
 if __name__ == '__main__':
     main()
