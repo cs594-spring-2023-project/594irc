@@ -31,28 +31,36 @@ IRC_ERR_VALUES = [i for i in range(0x10, 0x19)] # for validation
 # IRC error codes
 IRC_ERR_UNKNOWN = 0x10
 IRC_ERR_ILLEGAL_OPCODE = 0x11
-IRC_ERR_ILLEGAL_LEN = 0x12
+IRC_ERR_ILLEGAL_LENGTH = 0x12
 IRC_ERR_ILLEGAL_LABEL = 0x13
 IRC_ERR_ILLEGAL_MSG = 0x14
-IRC_ERR_WRONG_VER = 0x15
+IRC_ERR_WRONG_VERSION = 0x15
 IRC_ERR_NAME_EXISTS = 0x16
 IRC_ERR_TOO_MANY_USERS = 0x17
 IRC_ERR_TOO_MANY_ROOMS = 0x18
 
+# packet classes
+# could be more DRY and better organized with inheritance but this is simpler for now
+# construct_* packs packet contents into a bytestring;
+# parse_* may be a good idea, and would unpack a bytestring into a packet object
+
 class IrcHeader:
     ''' holds the header of an IRC message
     '   opcode: IRC command
-    '   len: length of associated message body in bytes
+    '   length: length of associated message body in bytes
     '   version: IRC version in use by creator of message
     '''
+    opcode_length = 1
+    length_length = 4
+    header_length = opcode_length + length_length
     def __init__(self, opcode, length):
         self.opcode = opcode # should be 1 byte
         self.length = length # should be 4 bytes
     
-    def construct_header(self):
+    def to_bytes(self):
         ''' returns a byte representation of the header '''
-        opcode_bytes = self.header.opcode.to_bytes(1, 'big')
-        length_bytes = self.header.length.to_bytes(4, 'big')
+        opcode_bytes = self.opcode.to_bytes(1, 'big')
+        length_bytes = self.length.to_bytes(4, 'big')
         return opcode_bytes + length_bytes
 
 
@@ -62,20 +70,23 @@ class IrcPacketHello:
     '   payload: username
     '   version: IRC version in use by creator of message
     '''
+    payload_length = 32
+    version_length = 2
+    packet_length = payload_length + version_length
     def __init__(self, username, version=IRC_VERSION):
-        self.header = IrcHeader(IRC_HELLO, 32 + 2)
+        self.header = IrcHeader(IRC_HELLO, IrcPacketHello.packet_length)
         self.payload = username # should be 32 bytes
         self.version = version # should be 2 bytes
 
-    def construct_packet(self):
+    def to_bytes(self):
         ''' returns a byte representation of the packet '''
         # validate fields
         if not validate_label(self.payload):
             raise ValueError(f"Invalid username: {self.payload}")
         # construct and return bytestring
-        header_bytes = self.header.construct_header()
+        header_bytes = self.header.to_bytes()
         payload_bytes = label_to_bytes(self.payload)
-        version_bytes = self.version.to_bytes('big')
+        version_bytes = self.version.to_bytes(IrcPacketHello.version_length, 'big')
         return header_bytes + payload_bytes + version_bytes
         
 
@@ -88,7 +99,7 @@ class IrcPacketMsg:
         self.header = IrcHeader(opcode, len(payload))
         self.payload = payload
 
-    def construct_packet(self):
+    def to_bytes(self):
         ''' returns a byte representation of the packet '''
         # validate fields
         if self.header.opcode not in IRC_COMMAND_VALUES:
@@ -96,7 +107,7 @@ class IrcPacketMsg:
         if self.header.length != len(self.payload):
             raise ValueError(f"Invalid length: {self.header.length}")
         # construct and return bytestring
-        header_bytes = self.header.construct_header()
+        header_bytes = self.header.to_bytes()
         payload_bytes = self.payload.encode('ascii')
         return header_bytes + payload_bytes
 
@@ -105,12 +116,18 @@ class IrcPktErr:
     ''' has a header, holds the body of an IRC error message
     '   header: irc_header object
     '   payload: error message body
+    '   may be nice to add a message field to err packets...
     '''
+    errcode_length = 1
+    packet_length = errcode_length
     def __init__(self, payload):
-        self.header = IrcHeader(IRC_ERR, 1)
+        self.header = IrcHeader(IRC_ERR, IrcPktErr.packet_length)
         self.payload = payload # should be an IRC_ERR_* code, 1 byte
 
-    def construct_packet(self):
+    def to_bytes(self):
+        ''' returns a byte representation of the packet
+        currently does not use message from  close_on_err...
+        '''
         # validate fields
         if self.payload not in IRC_ERR_VALUES:
             raise ValueError(f"Invalid error code: {self.payload}")
@@ -126,17 +143,20 @@ class IrcPktKeepalive:
     '   header: irc_header object
     '   version: IRC version in use by creator of message
     '''
+    packet_length = 0
     def __init__(self):
-        self.header = IrcHeader(IRC_KEEPALIVE, 0)
+        self.header = IrcHeader(IRC_KEEPALIVE, IrcPktKeepalive.packet_length)
 
-    def construct_packet(self):
+    def to_bytes(self):
         ''' returns a byte representation of the packet '''
         # validate fields
         if self.header.opcode != IRC_KEEPALIVE:
             raise ValueError(f"Invalid opcode: {self.header.opcode}")
         # construct and return bytestring
-        header_bytes = self.header.construct_header()
+        header_bytes = self.header.to_bytes()
         return header_bytes
+
+# globally useful functions
 
 def close_on_err(sock, err_code, err_msg=None):
     ''' closes a socket and prints an error message
@@ -145,7 +165,7 @@ def close_on_err(sock, err_code, err_msg=None):
     '   err_msg: error message to print
     '''
     print(err_msg)
-    sock.send(IrcPktErr(err_code).construct_packet())
+    sock.send(IrcPktErr(err_code).to_bytes())
     sock.close()
     sys.exit(1)
 
@@ -159,8 +179,10 @@ def validate_string(string):
         string.encode('ascii')
     except UnicodeEncodeError:
         return False
-    for char in string:
+    for i, char in enumerate(string):
         if ord(char) < 0x20 or ord(char) > 0x7E and (ord(char) != 0x0A or ord(char) != 0x0D):
+            if ord(char) == 0x00 and i != 0:
+                break # null terminator is allowed, but only if there's at least 1 char prior
             return False
     return True
 
