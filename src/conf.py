@@ -57,15 +57,24 @@ class IrcHeader:
     opcode_length = 1
     length_length = 4
     header_length = opcode_length + length_length
-    def __init__(self, opcode, length):
+    def __init__(self, opcode=None, length=None):
         self.opcode = opcode # should be 1 byte
         self.length = length # should be 4 bytes
     
     def to_bytes(self):
-        ''' returns a byte representation of the header '''
+        ''' returns a byte representation of the header
+        ' validates fields
+        '''
         opcode_bytes = self.opcode.to_bytes(1, 'big')
         length_bytes = self.length.to_bytes(4, 'big')
         return opcode_bytes + length_bytes
+
+    def from_bytes(self, received_hello):
+        ''' parses a byte representation of the packet and validates the results
+        '   returns an IrcHeader object
+        '   intended to consume the output of socket.recv()
+        '''
+        pass # TODO
 
 
 class IrcPacketHello:
@@ -86,7 +95,9 @@ class IrcPacketHello:
         self.version = version
 
     def to_bytes(self):
-        ''' returns a byte representation of the packet '''
+        ''' returns a byte representation of the packet
+        '   validates fields
+        '''
         # validate fields
         if not validate_label(self.payload):
             raise ValueError(f"Invalid username: {self.payload}")
@@ -125,17 +136,20 @@ class IrcPacketHello:
         self.version = version
         return self
 
+
 class IrcPacketMsg:
     ''' has a header, holds the body of an IRC message
     '   header: irc_header object
     '   payload: message body
     '''
-    def __init__(self, opcode, payload):
+    def __init__(self, opcode=None, payload=None):
         self.header = IrcHeader(opcode, len(payload))
         self.payload = payload
 
     def to_bytes(self):
-        ''' returns a byte representation of the packet '''
+        ''' returns a byte representation of the packet
+        '   validates fields
+        '''
         # validate fields
         if self.header.opcode not in IRC_COMMAND_VALUES:
             raise ValueError(f"Invalid opcode: {self.header.opcode}")
@@ -146,8 +160,15 @@ class IrcPacketMsg:
         payload_bytes = self.payload.encode('ascii')
         return header_bytes + payload_bytes
 
+    def from_bytes(self, received_hello):
+        ''' parses a byte representation of the packet and validates the results
+        '   returns an IrcPacketMsg object
+        '   intended to consume the output of socket.recv()
+        '''
+        pass # TODO
 
-class IrcPktErr:
+
+class IrcPacketErr:
     ''' has a header, holds the body of an IRC error message
     '   header: irc_header object
     '   payload: error message body
@@ -156,13 +177,13 @@ class IrcPktErr:
     errcode_length = 1
     payload_length = errcode_length
     packet_length = IrcHeader.header_length + payload_length
-    def __init__(self, payload):
-        self.header = IrcHeader(IRC_ERR, IrcPktErr.payload_length)
+    def __init__(self, payload=None):
+        self.header = IrcHeader(IRC_ERR, IrcPacketErr.payload_length)
         self.payload = payload # should be an IRC_ERR_* code, 1 byte
 
     def to_bytes(self):
         ''' returns a byte representation of the packet
-        currently does not use message from  close_on_err...
+        '   validates fields
         '''
         # validate fields
         if self.payload not in IRC_ERR_VALUES:
@@ -173,8 +194,15 @@ class IrcPktErr:
         payload_bytes = self.payload.to_bytes(1, 'big')
         return opcode_bytes + length_bytes + payload_bytes
 
+    def from_bytes(self, received_hello):
+        ''' parses a byte representation of the packet and validates the results
+        '   returns an IrcPacketErr object
+        '   intended to consume the output of socket.recv()
+        '''
+        pass # TODO
 
-class IrcPktKeepalive:
+
+class IrcPacketKeepalive:
     ''' has a header, holds the body of an IRC keepalive message
     '   header: irc_header object
     '   version: IRC version in use by creator of message
@@ -182,16 +210,26 @@ class IrcPktKeepalive:
     payload_length = 0
     packet_length = IrcHeader.header_length + payload_length
     def __init__(self):
-        self.header = IrcHeader(IRC_KEEPALIVE, IrcPktKeepalive.payload_length)
+        self.header = IrcHeader(IRC_KEEPALIVE, IrcPacketKeepalive.payload_length)
 
     def to_bytes(self):
-        ''' returns a byte representation of the packet '''
+        ''' returns a byte representation of the packet
+        '   validates fields
+        '''
         # validate fields
         if self.header.opcode != IRC_KEEPALIVE:
             raise ValueError(f"Invalid opcode: {self.header.opcode}")
         # construct and return bytestring
         header_bytes = self.header.to_bytes()
         return header_bytes
+
+    def from_bytes(self, received_hello):
+        ''' parses a byte representation of the packet and validates the results
+        '   returns an IrcPacketKeepalive object
+        '   intended to consume the output of socket.recv()
+        '''
+        pass # TODO
+
 
 # globally useful functions
 
@@ -202,7 +240,7 @@ def close_on_err(sock, err_code, err_msg=None):
     '   err_msg: error message to print
     '''
     print(err_msg)
-    sock.send(IrcPktErr(err_code).to_bytes())
+    sock.send(IrcPacketErr(err_code).to_bytes())
     sock.close()
     sys.exit(1)
 

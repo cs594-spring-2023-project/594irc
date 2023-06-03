@@ -66,7 +66,8 @@ def main():
                 else: # established client
                     # (this should be a keepalive, msg, err, join, leave, or list pkt)
                     client_sock = key.fileobj
-                    client_sock.recv(IrcHeader.header_length)
+                    header_bytes = client_sock.recv(IrcHeader.header_length)
+                    header_obj = IrcHeader().from_bytes(header_bytes)
                     # Determine what kind of packet this is and how much more to recv
                     # recv the rest of the packet and process it
                     # TODO
