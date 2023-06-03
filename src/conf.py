@@ -45,9 +45,8 @@ class IrcHeader:
     '   version: IRC version in use by creator of message
     '''
     def __init__(self, opcode, length):
-        self.version = version
-        self.opcode = opcode
-        self.length = length
+        self.opcode = opcode # should be 1 byte
+        self.length = length # should be 4 bytes
 
 class IrcPacketHello:
     ''' has a header, holds the body of an IRC hello message
@@ -76,7 +75,7 @@ class IrcPktErr:
     '''
     def __init__(self, payload):
         self.header = IrcHeader(IRC_ERR, 1)
-        self.payload = payload # should be an IRC_ERR_* code
+        self.payload = payload # should be an IRC_ERR_* code, 1 byte
 
 class IrcPktKeepalive:
     ''' has a header, holds the body of an IRC keepalive message
@@ -96,7 +95,7 @@ def close_on_err(sock, err):
     sys.exit(1)
 
 def validate_string(string):
-    ''' checks that all chars in a string are between 0x20 and 0x7E (inclusive)
+    ''' checks that all chars in a string are between ascii 0x20 and 0x7E (inclusive)
     '   or are 0x0A or 0x0D
     '   string: string to check
     '   returns: True if valid, False otherwise
@@ -111,7 +110,7 @@ def validate_string(string):
     return True
 
 def validate_label(label):
-    ''' checks if a label is valid
+    ''' checks if a label is a valid string & valid length
     '   label: label to check
     '   returns: True if valid, False otherwise
     '''
