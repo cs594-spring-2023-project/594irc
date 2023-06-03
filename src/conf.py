@@ -101,6 +101,10 @@ def validate_string(string):
     '   string: string to check
     '   returns: True if valid, False otherwise
     '''
+    try:
+        string.encode('ascii')
+    except UnicodeEncodeError:
+        return False
     for char in string:
         if ord(char) < 0x20 or ord(char) > 0x7E and (ord(char) != 0x0A or ord(char) != 0x0D):
             return False
@@ -111,8 +115,4 @@ def validate_label(label):
     '   label: label to check
     '   returns: True if valid, False otherwise
     '''
-    try:
-        label.encode('ascii')
-    except UnicodeEncodeError:
-        return False
     return len(label) <= 32 and validate_string(label)
