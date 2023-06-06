@@ -27,7 +27,7 @@ def accept_new_user(sock, users, selector):
             close_on_err(client_sock, IRC_ERR_NAME_EXISTS)
         users.append(username)
         selector.register(client_sock, selectors.EVENT_READ)
-        print(f"received hello from {username} at {client_tcpip_tuple}")
+        print(f"received hello from {username} at {client_tcpip_tuple} (fd {client_sock.fileno()})")
     except IRCException as e:
         close_on_err(client_sock, e.err_code)
 
@@ -66,11 +66,17 @@ def main():
                 else: # established client
                     # (this should be a keepalive, msg, err, join, leave, or list pkt)
                     client_sock = key.fileobj
+                    #print(f'received something other than hello from {client_sock.getpeername()}')
                     header_bytes = client_sock.recv(IrcHeader.header_length)
+                    if header_bytes == b'':
+                        #print(f'received nothing from {client_sock.getpeername()}')
+                        continue # not sure why this happens...
                     header_obj = IrcHeader().from_bytes(header_bytes)
                     # Determine what kind of packet this is and how much more to recv
                     # recv the rest of the packet and process it
                     # TODO
+                    print(f'received opcode {header_obj.opcode} from {client_sock.getpeername()};\nnot yet implemented!')
+                    client_sock.recv(4096) # drain buffer
 
 if __name__ == '__main__':
     main()

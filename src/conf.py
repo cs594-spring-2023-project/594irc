@@ -69,12 +69,23 @@ class IrcHeader:
         length_bytes = self.length.to_bytes(4, 'big')
         return opcode_bytes + length_bytes
 
-    def from_bytes(self, received_hello):
+    def from_bytes(self, received_header):
         ''' parses a byte representation of the packet and validates the results
         '   returns an IrcHeader object
         '   intended to consume the output of socket.recv()
         '''
-        pass # TODO
+        # define field boundaries
+        opcode_bytes = received_header[0:IrcHeader.opcode_length]
+        len_bytes = received_header[IrcHeader.opcode_length:IrcHeader.header_length]
+        # construct and return self
+        opcode = int.from_bytes(opcode_bytes, 'big')
+        length = int.from_bytes(len_bytes, 'big')
+        self.opcode = opcode
+        self.length = length
+        return self
+        
+
+
 
 
 class IrcPacketHello:
@@ -142,9 +153,10 @@ class IrcPacketMsg:
     '   header: irc_header object
     '   payload: message body
     '''
-    def __init__(self, opcode=None, payload=None):
-        self.header = IrcHeader(opcode, len(payload))
+    def __init__(self, opcode=IRC_SENDMSG, payload=None, target=None):
+        self.header = IrcHeader(opcode, len(payload)+len(target))
         self.payload = payload
+        self.target = target
 
     def to_bytes(self):
         ''' returns a byte representation of the packet
@@ -153,19 +165,24 @@ class IrcPacketMsg:
         # validate fields
         if self.header.opcode not in IRC_COMMAND_VALUES:
             raise ValueError(f"Invalid opcode: {self.header.opcode}")
-        if self.header.length != len(self.payload):
+        if self.header.length != len(self.payload) + len(self.target):
             raise ValueError(f"Invalid length: {self.header.length}")
+        if not validate_label(self.target):
+            raise ValueError(f"Invalid target label: {self.target}")
+        if not validate_string(self.payload):
+            raise ValueError(f"Invalid payload string: {self.payload}")
         # construct and return bytestring
         header_bytes = self.header.to_bytes()
+        target_bytes = self.target.encode('ascii')
         payload_bytes = self.payload.encode('ascii')
-        return header_bytes + payload_bytes
+        return header_bytes + target_bytes + payload_bytes
 
     def from_bytes(self, received_hello):
         ''' parses a byte representation of the packet and validates the results
         '   returns an IrcPacketMsg object
         '   intended to consume the output of socket.recv()
         '''
-        pass # TODO
+        pass # TODO (remember that target is always 32 bytes)
 
 
 class IrcPacketErr:
