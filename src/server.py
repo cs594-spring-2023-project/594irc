@@ -7,15 +7,6 @@ from conf import *
 import socket
 import selectors
 
-'''
-server should
-    receive packet from client,
-    decode it as bytes using str.decode('ascii') or int.from_bytes('big'),
-    perform some actions based on the opcode,
-    and respond to the client
-in addition to keepalives
-'''
-
 def accept_new_user(sock, users, selector):
     ''' accepts a new user and adds them to the users list '''
     try:
@@ -71,11 +62,29 @@ def main():
                     if header_bytes == b'':
                         #print(f'received nothing from {client_sock.getpeername()}')
                         continue # not sure why this happens...
+                        # if there's no inbound traffic why does the FD get selected?
                     header_obj = IrcHeader().from_bytes(header_bytes)
+                    if header_obj.opcode == IRC_KEEPALIVE:
+                        print(f'received keepalive from {client_sock.getpeername()}') # TODO
+                    elif header_obj.opcode == IRC_SENDMSG:
+                        print(f'received msg from {client_sock.getpeername()}') # TODO
+                        packet_bytes = header_bytes + client_sock.recv(header_obj.length)
+                        msg_obj = IrcPacketMsg().from_bytes(packet_bytes)
+                    elif header_obj.opcode == IRC_ERR:
+                        print(f'received err from {client_sock.getpeername()}') # TODO
+                    elif header_obj.opcode == IRC_JOINROOM:
+                        print(f'received join from {client_sock.getpeername()}') # TODO
+                    elif header_obj.opcode == IRC_LEAVEROOM:
+                        print(f'received leave from {client_sock.getpeername()}') # TODO
+                    elif header_obj.opcode == IRC_LISTROOMS:
+                        print(f'received listrooms from {client_sock.getpeername()}') # TODO
+                    elif header_obj.opcode == IRC_LISTUSERS:
+                        print(f'received listusers from {client_sock.getpeername()}') # TODO
+                    else:
+                        print(f'WARNING! OPCODE NOT KNOWN TO SERVER\nreceived opcode {header_obj.opcode} from {client_sock.getpeername()};\nnot yet implemented!')
                     # Determine what kind of packet this is and how much more to recv
                     # recv the rest of the packet and process it
                     # TODO
-                    print(f'received opcode {header_obj.opcode} from {client_sock.getpeername()};\nnot yet implemented!')
                     client_sock.recv(4096) # drain buffer
 
 if __name__ == '__main__':

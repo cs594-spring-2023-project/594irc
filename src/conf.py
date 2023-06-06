@@ -41,12 +41,12 @@ IRC_ERR_TOO_MANY_ROOMS = 0x18
 
 class IRCException(Exception):
     def __init__(self, code):
-        self.irc_err_code = code
+        self.err_code = code
 
 # packet classes
 # could be more DRY and better organized with inheritance but this is simpler for now
-# construct_* packs packet contents into a bytestring;
-# parse_* may be a good idea, and would unpack a bytestring into a packet object
+# to_bytes packs packet contents into a bytestring;
+# from_bytes unpacks a bytestring into a packet object
 
 class IrcHeader:
     ''' holds the header of an IRC message
@@ -85,9 +85,6 @@ class IrcHeader:
         return self
         
 
-
-
-
 class IrcPacketHello:
     ''' has a header, holds the body of an IRC hello message
     '   header: irc_header object
@@ -123,16 +120,16 @@ class IrcPacketHello:
         '   returns an IrcPacketHello object
         '   intended to consume the output of socket.recv()
         '''
-        # define field boundaries
-        len_bytes = received_hello[1:IrcHeader.length_length+1]
+        # define field boundaries - may be a better way to do this, remove bytes as they're parsed?
+        self.header = IrcHeader().from_bytes(received_hello[0:IrcHeader.header_length])
         name_bytes = received_hello[
             IrcHeader.header_length : IrcHeader.header_length + IrcPacketHello.name_length
         ]
         version_bytes = received_hello[IrcHeader.header_length + IrcPacketHello.name_length:]
         # parse bytes and validate
-        if received_hello[0] != IRC_HELLO:
+        if self.header.opcode != IRC_HELLO:
             raise IRCException(IRC_ERR_ILLEGAL_OPCODE)
-        if int.from_bytes(len_bytes, 'big') != IrcPacketHello.payload_length:
+        if self.header.length != IrcPacketHello.payload_length:
             raise IRCException(IRC_ERR_ILLEGAL_LENGTH)
         username_as_received = name_bytes.decode('ascii')
         if not validate_label(username_as_received):
@@ -142,7 +139,7 @@ class IrcPacketHello:
         if version != IRC_VERSION:
             raise IRCException(IRC_ERR_WRONG_VERSION)
         # construct and return
-        self.header = IrcHeader(IRC_HELLO, IrcPacketHello.payload_length)
+        #self.header = IrcHeader(IRC_HELLO, IrcPacketHello.payload_length)
         self.payload = username
         self.version = version
         return self
