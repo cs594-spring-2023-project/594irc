@@ -7,6 +7,7 @@ import sys
 # network config
 IRC_SERVER_PORT = 7734
 TIMEOUT = 5
+LABEL_LENGTH = 32
 
 # IRC version
 IRC_VERSION = 0x1337
@@ -91,9 +92,8 @@ class IrcPacketHello:
     '   payload: username
     '   version: IRC version in use by creator of message
     '''
-    name_length = 32
     version_length = 2
-    payload_length = name_length + version_length
+    payload_length = LABEL_LENGTH + version_length
     packet_length = IrcHeader.header_length + payload_length
     def __init__(self, username=None, version=IRC_VERSION, length=None):
         if length is None:
@@ -114,7 +114,7 @@ class IrcPacketHello:
         payload_bytes = label_to_bytes(self.payload)
         version_bytes = self.version.to_bytes(IrcPacketHello.version_length, 'big')
         return header_bytes + payload_bytes + version_bytes
-        
+
     def from_bytes(self, received_hello):
         ''' parses a byte representation of the packet and validates the results
         '   returns an IrcPacketHello object
@@ -123,9 +123,9 @@ class IrcPacketHello:
         # define field boundaries - may be a better way to do this, remove bytes as they're parsed?
         self.header = IrcHeader().from_bytes(received_hello[0:IrcHeader.header_length])
         name_bytes = received_hello[
-            IrcHeader.header_length : IrcHeader.header_length + IrcPacketHello.name_length
+            IrcHeader.header_length : IrcHeader.header_length + LABEL_LENGTH
         ]
-        version_bytes = received_hello[IrcHeader.header_length + IrcPacketHello.name_length:]
+        version_bytes = received_hello[IrcHeader.header_length + LABEL_LENGTH:]
         # parse bytes and validate
         if self.header.opcode != IRC_HELLO:
             raise IRCException(IRC_ERR_ILLEGAL_OPCODE)
@@ -151,7 +151,9 @@ class IrcPacketMsg:
     '   payload: message body
     '''
     def __init__(self, opcode=IRC_SENDMSG, payload=None, target=None):
-        self.header = IrcHeader(opcode, len(payload)+len(target))
+        self.header = None
+        if payload is not None and target is not None:
+            self.header = IrcHeader(opcode, len(payload)+LABEL_LENGTH)
         self.payload = payload
         self.target = target
 
@@ -162,7 +164,7 @@ class IrcPacketMsg:
         # validate fields
         if self.header.opcode not in IRC_COMMAND_VALUES:
             raise ValueError(f"Invalid opcode: {self.header.opcode}")
-        if self.header.length != len(self.payload) + len(self.target):
+        if self.header.length != len(self.payload) + LABEL_LENGTH:
             raise ValueError(f"Invalid length: {self.header.length}")
         if not validate_label(self.target):
             raise ValueError(f"Invalid target label: {self.target}")
@@ -170,16 +172,39 @@ class IrcPacketMsg:
             raise ValueError(f"Invalid payload string: {self.payload}")
         # construct and return bytestring
         header_bytes = self.header.to_bytes()
-        target_bytes = self.target.encode('ascii')
+        target_bytes = label_to_bytes(self.target)
         payload_bytes = self.payload.encode('ascii')
         return header_bytes + target_bytes + payload_bytes
 
-    def from_bytes(self, received_hello):
+    def from_bytes(self, received_msg):
         ''' parses a byte representation of the packet and validates the results
         '   returns an IrcPacketMsg object
         '   intended to consume the output of socket.recv()
         '''
-        pass # TODO (remember that target is always 32 bytes)
+        # define field boundaries - may be a better way to do this, remove bytes as they're parsed?
+        self.header = IrcHeader().from_bytes(received_msg[0:IrcHeader.header_length])
+        # target label
+        target_bytes = received_msg[
+            IrcHeader.header_length : IrcHeader.header_length + LABEL_LENGTH
+        ]
+        # message body
+        payload_bytes = received_msg[IrcHeader.header_length + LABEL_LENGTH:]
+        # parse bytes and validate
+        if self.header.opcode != IRC_SENDMSG:
+            raise IRCException(IRC_ERR_ILLEGAL_OPCODE)
+        if self.header.length != len(payload_bytes) + len(target_bytes):
+            raise IRCException(IRC_ERR_ILLEGAL_LENGTH)
+        target_as_received = target_bytes.decode('ascii')
+        if not validate_label(target_as_received):
+            raise IRCException(IRC_ERR_ILLEGAL_LABEL)
+        target = strip_null_bytes(target_as_received)
+        msg_body = payload_bytes.decode('ascii')
+        if not validate_string(msg_body):
+            raise IRCException(IRC_ERR_ILLEGAL_MSG)
+        # construct and return
+        self.payload = msg_body
+        self.target = target
+        return self
 
 
 class IrcPacketErr:

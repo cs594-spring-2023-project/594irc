@@ -70,6 +70,7 @@ def main():
                         print(f'received msg from {client_sock.getpeername()}') # TODO
                         packet_bytes = header_bytes + client_sock.recv(header_obj.length)
                         msg_obj = IrcPacketMsg().from_bytes(packet_bytes)
+                        print(msg_obj.payload)
                     elif header_obj.opcode == IRC_ERR:
                         print(f'received err from {client_sock.getpeername()}') # TODO
                     elif header_obj.opcode == IRC_JOINROOM:
