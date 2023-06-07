@@ -295,6 +295,7 @@ class IrcPacketKeepalive:
     ''' has a header, holds the body of an IRC keepalive message
     '   header: irc_header object
     '   version: IRC version in use by creator of message
+    '  !No need for a from_bytes method, keepalive messages are not parsed
     '''
     payload_length = 0
     packet_length = IrcHeader.header_length + payload_length
@@ -311,13 +312,6 @@ class IrcPacketKeepalive:
         # construct and return bytestring
         header_bytes = self.header.to_bytes()
         return header_bytes
-
-    def from_bytes(self, received_hello):
-        ''' parses a byte representation of the packet and validates the results
-        '   returns an IrcPacketKeepalive object
-        '   intended to consume the output of socket.recv()
-        '''
-        pass # TODO
 
 
 # globally useful functions

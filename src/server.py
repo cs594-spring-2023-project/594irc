@@ -3,9 +3,13 @@
 '   ...
 '''
 
-from conf import *
-import socket
 import selectors
+import socket
+import threading
+from time import sleep
+
+from conf import *
+
 
 def accept_new_user(sock, users, selector):
     ''' accepts a new user and adds them to the users list '''
@@ -63,6 +67,25 @@ def send_msg(sock, msg, users, rooms):
 def react_to_client_err(sock, users, rooms, selector):
     pass # TODO
 
+def send_keepalive(sock):
+    ''' sends a keepalive packet to the given socket '''
+    try:
+        sock.sendall(IrcPacketKeepalive().to_bytes())
+    except socket.timeout:
+        print(f'connection to {sock.getpeername()} timed out')
+        sock.close()
+    except socket.error as e:
+        print(f'connection to {sock.getpeername()} errored: {e}')
+        sock.close()
+
+def send_keepalives(sel, main_sock):
+    ''' Should be its own thread '''
+    while True:
+        sleep(4)
+        clients = [key.fileobj for key, _ in sel.get_map().items() if key.fileobj != main_sock]
+        for client in clients:
+            send_keepalive(client)
+
 def main():
     ''' creates a socket to listen on, initializes rooms and users lists, and enters a loop '''
     rooms = {}
@@ -78,6 +101,8 @@ def main():
         mainloop(main_sock, users, rooms, sel)
 
 def mainloop(main_sock, users, rooms, sel):
+    keepalive_thread = threading.Thread(target=send_keepalives, args=(sel, main_sock))
+    keepalive_thread.start() # TODO handle OS errors gracefully
     while True:
         events = sel.select(timeout=TIMEOUT)
         for key, _ in events:
@@ -87,7 +112,7 @@ def mainloop(main_sock, users, rooms, sel):
                 # (this should be a keepalive, msg, err, join, leave, or list pkt)
                 client_sock = key.fileobj
                 #print(f'received something other than hello from {client_sock.getpeername()}')
-                got_data = receive_from_client(client_sock, users, rooms, sel)
+                got_data = receive_from_client(client_sock, users, rooms)
                 if not got_data:
                     continue
 
