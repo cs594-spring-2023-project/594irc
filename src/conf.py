@@ -519,39 +519,19 @@ class IrcPacketListUsersResp(IrcPacketListResp):
 
 # globally useful functions
 
-def clean_userlist(users, bad_sock=None):
-    return [user for user in users if user.sock != bad_sock and user.sock.fileno() != -1]
-
-def close_on_err(sock, err_code, err_msg=None, sel=None, users=None):
+def close_on_err(sock, err_code, err_msg=None):
     ''' closes a socket and prints an error message
     '   sock: socket to close
     '   err_code: error code to send
     '   err_msg: error message to print
     '   sel: selector to remove socket from (if closing from server)
     '''
-    print(f'closing {sock.getpeername()} due to error {err_code}')
     if err_msg is not None:
         print(err_msg)
-    sock.send(IrcPacketErr(err_code).to_bytes())
-    # server only block below
-    if sel is not None:
-        if users is not None:
-            try:
-                sel.unregister(sock)
-            except KeyError:
-                pass # socket already unregistered
-            users = clean_userlist(users, sock)
-        else:
-            print('if close_on_err is called from server, users must be passed')
-            exit(1)
-    if users is not None:
-        if sel is None:
-            print('if close_on_err is called from client, sel must be passed')
-            exit(1)
-    # server only block above
-    if sock is not None:
+    if sock is not None and sock.fileno() != -1:
+        print(f'closing {sock.getpeername()} due to error {err_code}')
+        sock.send(IrcPacketErr(err_code).to_bytes())
         sock.close()
-    return users
 
 def validate_string(string):
     ''' checks that all chars in a string are between ascii 0x20 and 0x7E (inclusive)
