@@ -23,8 +23,7 @@
 #   - send message  ✅    ❌
 #   - tell message  ✅    ❌
 
-import sys
-import abc
+from abc import ABC
 
 # network config
 IRC_SERVER_PORT = 7734
@@ -68,9 +67,11 @@ class IRCException(Exception):
         self.err_msg = msg
 
 # packet classes
-# could be more DRY and better organized with inheritance but this is simpler for now
+# could be more DRY and better organized with different inheritance
+# but this is simpler for now
 # to_bytes packs packet contents into a bytestring;
-# from_bytes unpacks a bytestring into a packet object
+# from_bytes unpacks a bytestring into the packet object
+# validate should be run at beginning of to_bytes and at end of from_bytes
 
 class IrcHeader:
     ''' holds the header of an IRC message
@@ -224,9 +225,7 @@ class IrcPacketHello:
         return self
  
 
-
-@abc
-class IrcPacketRoomOp:
+class IrcPacketRoomOp(ABC):
     ''' has a header, holds the body of an IRC join or leave message
     '   header: irc_header object
     '   payload: room name
@@ -298,12 +297,11 @@ class IrcPacketLeaveRoom(IrcPacketRoomOp):
         super().__init__(IRC_LEAVEROOM, room_name)
 
 
-@abc
-class IrcPacketMsgOp:
+class IrcPacketMsgOp(ABC):
     ''' has a header, holds the body of an IRC message. May be a send or a tell
     '   header: irc_header object
     '   payload: message body
-    '   other: recipient label
+    '   other: sender or recipient label
     '''
     def __init__(self, opcode, payload=None, other=None):
         self.header = None
@@ -378,14 +376,13 @@ class IrcPacketTellMsg(IrcPacketMsgOp):
     ''' has a header, holds the body of an IRC message. For server -> client messages
     '   header: irc_header object
     '   payload: message body
-    '   other: recipient label
+    '   other: sender label
     '''
     def __init__(self, payload=None, other=None):
         super().__init__(IRC_TELLMSG, payload, other)
 
 
-@abc
-class IrcPacketEmpty:
+class IrcPacketEmpty(ABC):
     ''' has a header, holds the body of an IRC message with no payload
     '   header: irc_header object
     '  !No need for a from_bytes method, keepalive messages are not parsed
@@ -522,17 +519,39 @@ class IrcPacketListUsersResp(IrcPacketListResp):
 
 # globally useful functions
 
-def close_on_err(sock, err_code, err_msg=None):
+def clean_userlist(users, bad_sock=None):
+    return [user for user in users if user.sock != bad_sock and user.sock.fileno() != -1]
+
+def close_on_err(sock, err_code, err_msg=None, sel=None, users=None):
     ''' closes a socket and prints an error message
     '   sock: socket to close
     '   err_code: error code to send
     '   err_msg: error message to print
+    '   sel: selector to remove socket from (if closing from server)
     '''
     print(f'closing {sock.getpeername()} due to error {err_code}')
     if err_msg is not None:
         print(err_msg)
     sock.send(IrcPacketErr(err_code).to_bytes())
-    sock.close()
+    # server only block below
+    if sel is not None:
+        if users is not None:
+            try:
+                sel.unregister(sock)
+            except KeyError:
+                pass # socket already unregistered
+            users = clean_userlist(users, sock)
+        else:
+            print('if close_on_err is called from server, users must be passed')
+            exit(1)
+    if users is not None:
+        if sel is None:
+            print('if close_on_err is called from client, sel must be passed')
+            exit(1)
+    # server only block above
+    if sock is not None:
+        sock.close()
+    return users
 
 def validate_string(string):
     ''' checks that all chars in a string are between ascii 0x20 and 0x7E (inclusive)

@@ -1,4 +1,5 @@
 from sys import argv
+from time import sleep
 from conf import *
 from socket import *
 sock = socket(AF_INET, SOCK_STREAM)
@@ -20,7 +21,7 @@ def send_hellos():
 def send_msg():
     # poke the server with a message (this should really mock the hello and join packets)
     global sock2
-    msg_packet = IrcPacketMsg(payload='This is a test message from Amelia', target='a room that doesn\'t exist')
+    msg_packet = IrcPacketSendMsg(payload='This is a test message from Amelia', other='a room that doesn\'t exist')
     msg_bytes = msg_packet.to_bytes()
     sock2.sendall(msg_bytes)
 
@@ -41,6 +42,7 @@ def main(interactive):
     else:
         send_hellos()
         send_msg()
+        #sleep(8)
     quit()
 
 if __name__ == '__main__':
