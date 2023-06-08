@@ -10,19 +10,21 @@
 '   party informing the other party of the error and closing the connection.
 '''
 # TODO packet types:
-#   - header ✅
-#   - error ✅
-#   - hello ✅
-#   - keepalive ✅
-#   - list rooms ✅
-#   - list users ✅
-#   - list resps 🟡 1
-#   - join room ✅
-#   - leave room 🟡 3
-#   - send message ✅
-#   - tell message 🟡 2
+#     name          done?  tested?
+#   - header        ✅    ✅
+#   - error         ✅    ❌
+#   - hello         ✅    ❌
+#   - keepalive     ✅    ❌
+#   - list rooms    ✅    ❌
+#   - list users    ✅    ❌
+#   - list resps    ✅    ❌
+#   - join room     ✅    ❌
+#   - leave room    ✅    ❌
+#   - send message  ✅    ❌
+#   - tell message  ✅    ❌
 
 import sys
+import abc
 
 # network config
 IRC_SERVER_PORT = 7734
@@ -89,9 +91,10 @@ class IrcHeader:
             raise IRCException(IRC_ERR_ILLEGAL_OPCODE, f"Invalid opcode: {self.opcode}")
     
     def to_bytes(self):
-        ''' returns a byte representation of the header
-        ' validates fields
+        ''' validates fields
+        '   returns a byte representation of the header
         '''
+        self.validate()
         opcode_bytes = self.opcode.to_bytes(1, 'big')
         length_bytes = self.length.to_bytes(4, 'big')
         return opcode_bytes + length_bytes
@@ -134,12 +137,10 @@ class IrcPacketErr:
             raise IRCException(IRC_ERR_ILLEGAL_MSG, f"Invalid error code: {self.payload}")
 
     def to_bytes(self):
-        ''' returns a byte representation of the packet
-        '   validates fields
+        ''' validates fields
+        '   returns a byte representation of the packet
         '''
-        # validate fields
         self.validate()
-        # construct and return bytestring
         header_bytes = self.header.to_bytes()
         payload_bytes = self.payload.to_bytes(1, 'big')
         return header_bytes + payload_bytes
@@ -191,12 +192,10 @@ class IrcPacketHello:
             raise ValueError(f"Invalid username: {self.payload}")
 
     def to_bytes(self):
-        ''' returns a byte representation of the packet
-        '   validates fields
+        ''' validates fields
+        '   returns a byte representation of the packet
         '''
-        # validate fields
         self.validate()
-        # construct and return bytestring
         header_bytes = self.header.to_bytes()
         payload_bytes = label_to_bytes(self.payload)
         version_bytes = self.version.to_bytes(IrcPacketHello.version_length, 'big')
@@ -225,17 +224,19 @@ class IrcPacketHello:
         return self
  
 
-class IrcPacketJoin:
-    ''' has a header, holds the body of an IRC join message
+
+@abc
+class IrcPacketRoomOp:
+    ''' has a header, holds the body of an IRC join or leave message
     '   header: irc_header object
     '   payload: room name
     '''
     payload_length = LABEL_LENGTH
     packet_length = IrcHeader.header_length + payload_length
-    def __init__(self, room_name=None, version=IRC_VERSION, length=None):
-        if length is None:
-            length = IrcPacketHello.payload_length
-        self.header = IrcHeader(IRC_JOINROOM, length)
+    def __init__(self, opcode, room_name=None):
+        self.init_opcode = opcode
+        length = IrcPacketHello.payload_length
+        self.header = IrcHeader(opcode, length)
         self.payload = room_name
 
     def validate(self):
@@ -247,12 +248,10 @@ class IrcPacketJoin:
             raise ValueError(f"Invalid room name: {self.payload}")
 
     def to_bytes(self):
-        ''' returns a byte representation of the packet
-        '   validates fields
+        ''' validates fields
+        '   returns a byte representation of the packet
         '''
-        # validate fields
         self.validate()
-        # construct and return bytestring
         header_bytes = self.header.to_bytes()
         payload_bytes = label_to_bytes(self.payload)
         return header_bytes + payload_bytes
@@ -277,40 +276,69 @@ class IrcPacketJoin:
         return self
  
 
-class IrcPacketMsg:
-    ''' has a header, holds the body of an IRC message
+class IrcPacketJoinRoom(IrcPacketRoomOp):
+    ''' has a header, holds the body of an IRC join or leave message
+    '   header: irc_header object
+    '   payload: room name
+    '''
+    payload_length = LABEL_LENGTH
+    packet_length = IrcHeader.header_length + payload_length
+    def __init__(self, room_name=None):
+        super().__init__(IRC_JOINROOM, room_name)
+
+
+class IrcPacketLeaveRoom(IrcPacketRoomOp):
+    ''' has a header, holds the body of an IRC join or leave message
+    '   header: irc_header object
+    '   payload: room name
+    '''
+    payload_length = LABEL_LENGTH
+    packet_length = IrcHeader.header_length + payload_length
+    def __init__(self, room_name=None):
+        super().__init__(IRC_LEAVEROOM, room_name)
+
+
+@abc
+class IrcPacketMsgOp:
+    ''' has a header, holds the body of an IRC message. May be a send or a tell
     '   header: irc_header object
     '   payload: message body
+    '   other: recipient label
     '''
-    def __init__(self, opcode=IRC_SENDMSG, payload=None, target=None):
+    def __init__(self, opcode, payload=None, other=None):
         self.header = None
-        if payload is not None and target is not None:
+        if payload is not None and other is not None:
             self.header = IrcHeader(opcode, len(payload)+LABEL_LENGTH)
         self.payload = payload
-        self.target = target
+        self.other = other
 
     def validate(self):
         ''' assumes that int.to_bytes and label_to_bytes are used in egress code '''
         self.header.validate()
+        if self.header.opcode != IRC_SENDMSG:
+            raise IRCException(IRC_ERR_ILLEGAL_OPCODE)
         if self.header.length != len(self.payload) + LABEL_LENGTH:
             raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f"Invalid length: {self.header.length}")
-        pass # TODO
+        if not validate_label(self.other):
+            raise IRCException(IRC_ERR_ILLEGAL_LABEL)
+        if not validate_string(self.payload):
+            raise IRCException(IRC_ERR_ILLEGAL_MSG)
 
     def to_bytes(self):
-        ''' returns a byte representation of the packet
-        '   validates fields
+        ''' validates fields
+        '   returns a byte representation of the packet
         '''
         # validate fields
         self.validate()
-        if not validate_label(self.target):
-            raise ValueError(f"Invalid target label: {self.target}")
+        if not validate_label(self.other):
+            raise ValueError(f"Invalid other label: {self.other}")
         if not validate_string(self.payload):
             raise ValueError(f"Invalid payload string: {self.payload}")
         # construct and return bytestring
         header_bytes = self.header.to_bytes()
-        target_bytes = label_to_bytes(self.target)
+        other_bytes = label_to_bytes(self.other)
         payload_bytes = self.payload.encode('ascii')
-        return header_bytes + target_bytes + payload_bytes
+        return header_bytes + other_bytes + payload_bytes
 
     def from_bytes(self, received_msg):
         ''' parses a byte representation of the packet and validates the results
@@ -319,30 +347,44 @@ class IrcPacketMsg:
         '''
         # define field boundaries - may be a better way to do this, remove bytes as they're parsed?
         self.header = IrcHeader().from_bytes(received_msg[0:IrcHeader.header_length])
-        # target label
-        target_bytes = received_msg[
+        # other label
+        other_bytes = received_msg[
             IrcHeader.header_length : IrcHeader.header_length + LABEL_LENGTH
         ]
+        other_as_received = other_bytes.decode('ascii')
         # message body
         payload_bytes = received_msg[IrcHeader.header_length + LABEL_LENGTH:]
-        # parse bytes and validate
-        if self.header.opcode != IRC_SENDMSG:
-            raise IRCException(IRC_ERR_ILLEGAL_OPCODE)
-        if self.header.length != len(payload_bytes) + len(target_bytes):
-            raise IRCException(IRC_ERR_ILLEGAL_LENGTH)
-        target_as_received = target_bytes.decode('ascii')
-        if not validate_label(target_as_received):
-            raise IRCException(IRC_ERR_ILLEGAL_LABEL)
-        target = strip_null_bytes(target_as_received)
         msg_body = payload_bytes.decode('ascii')
-        if not validate_string(msg_body):
-            raise IRCException(IRC_ERR_ILLEGAL_MSG)
-        # construct and return
+        # parse bytes and validate
         self.payload = msg_body
-        self.target = target
+        self.other = other_as_received
+        self.validate()
+        # construct and return
+        self.other = strip_null_bytes(other_as_received)
         return self
 
 
+class IrcPacketSendMsg(IrcPacketMsgOp):
+    ''' has a header, holds the body of an IRC message. For client -> server messages
+    '   header: irc_header object
+    '   payload: message body
+    '   other: recipient label
+    '''
+    def __init__(self, payload=None, other=None):
+        super().__init__(IRC_SENDMSG, payload, other)
+
+
+class IrcPacketTellMsg(IrcPacketMsgOp):
+    ''' has a header, holds the body of an IRC message. For server -> client messages
+    '   header: irc_header object
+    '   payload: message body
+    '   other: recipient label
+    '''
+    def __init__(self, payload=None, other=None):
+        super().__init__(IRC_TELLMSG, payload, other)
+
+
+@abc
 class IrcPacketEmpty:
     ''' has a header, holds the body of an IRC message with no payload
     '   header: irc_header object
@@ -358,10 +400,8 @@ class IrcPacketEmpty:
         ''' returns a byte representation of the packet
         '   validates fields
         '''
-        # validate fields
         if self.header.opcode != self.init_opcode:
             raise ValueError(f"Invalid opcode: {self.header.opcode}")
-        # construct and return bytestring
         header_bytes = self.header.to_bytes()
         return header_bytes
 
@@ -388,7 +428,7 @@ class IrcListUsers(IrcPacketEmpty):
         super().__init__(IRC_LISTUSERS)
 
 
-class IrcPacketKeepalive:
+class IrcPacketKeepalive(IrcPacketEmpty):
     ''' has a header, holds the body of an IRC keepalive message
     '   header: irc_header object
     '  !No need for a from_bytes method, keepalive messages are not parsed
@@ -397,6 +437,87 @@ class IrcPacketKeepalive:
     packet_length = IrcHeader.header_length + payload_length
     def __init__(self):
         super().__init__(IRC_KEEPALIVE)
+
+
+class IrcPacketListResp:
+    ''' has a header, holds a response to a list request
+    '   header: irc_header object
+    '   payload: list of labels
+    '   identifier: used for listusers, name of room to list users in
+    '''
+    def __init__(self, opcode, payload=None, identifier=None):
+        self.init_opcode = opcode
+        self.header = IrcHeader(opcode, len(payload)*LABEL_LENGTH + LABEL_LENGTH if identifier is not None else 0)
+        self.payload = payload
+        self.identifier = identifier
+    
+    def validate(self):
+        ''' validates fields '''
+        self.header.validate()
+        if self.header.opcode != self.init_opcode:
+            raise IRCException(IRC_ERR_ILLEGAL_OPCODE, f"Invalid opcode: {self.header.opcode}")
+        if self.header.length != len(self.payload)*LABEL_LENGTH + LABEL_LENGTH if self.identifier is not None else 0:
+            raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f"Invalid length: {self.header.length}")
+        if self.identifier is not None and not validate_label(self.identifier):
+            raise IRCException(IRC_ERR_ILLEGAL_LABEL, f"Invalid label: {self.identifier}")
+        for label in self.payload:
+            if not validate_label(label):
+                raise IRCException(IRC_ERR_ILLEGAL_LABEL, f"Invalid label: {label}")
+    
+    def to_bytes(self):
+        ''' validates fields
+        '   returns a byte representation of the packet
+        '''
+        self.validate()
+        header_bytes = self.header.to_bytes()
+        payload_bytes = b''
+        for label in self.payload:
+            payload_bytes += label_to_bytes(label)
+        if self.identifier is not None:
+            payload_bytes += label_to_bytes(self.identifier) # Last 32 bytes are always identifier for listusers
+        return header_bytes + payload_bytes
+
+    def from_bytes(self, packet_bytes):
+        ''' parses a byte representation of the packet and validates the results
+        '   returns an IrcPacketListResp object (will this be an issue in consuming code? Expecting subclass?)
+        '   intended to consume the output of socket.recv()
+        '''
+        # define field boundaries - may be a better way to do this, remove bytes as they're parsed?
+        self.header = IrcHeader().from_bytes(packet_bytes[0:IrcHeader.header_length])
+        # message body
+        payload_bytes = packet_bytes[IrcHeader.header_length:]
+        # parse bytes and validate
+        userlist = [payload_bytes[i:i+LABEL_LENGTH] for i in range(0, len(payload_bytes), LABEL_LENGTH)]
+        self.payload = userlist
+        self.identifier = None # will be updated in subclass if needed
+        self.validate()
+        return self
+
+
+class IrcPacketListRoomsResp(IrcPacketListResp):
+    ''' has a header, holds a response to a list rooms request
+    '   header: irc_header object
+    '   payload: list of labels
+    '   identifier: used for listusers, name of room to list users in
+    '''
+    def __init__(self, payload=None):
+        super().__init__(IRC_LISTROOMS_RESP, payload)
+
+
+class IrcPacketListUsersResp(IrcPacketListResp):
+    ''' has a header, holds a response to a list users request
+    '   header: irc_header object
+    '   payload: list of labels
+    '   identifier: used for listusers, name of room to list users in
+    '''
+    def __init__(self, payload=None, identifier=None):
+        super().__init__(IRC_LISTUSERS_RESP, payload, identifier)
+    
+    def from_bytes(self, packet_bytes):
+        superclass_bytes = super().from_bytes(packet_bytes)
+        # identifier is always last 32 bytes of payload
+        self.identifier = self.payload[-1]
+        self.payload = self.payload[:-1]
 
 
 # globally useful functions
