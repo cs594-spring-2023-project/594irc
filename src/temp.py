@@ -32,6 +32,13 @@ def send_msg():
     msg_bytes = msg_packet.to_bytes()
     sock2.sendall(msg_bytes)
 
+def send_error():
+    # tests server side err handling
+    global sock2
+    err_packet = IrcPacketErr(IRC_ERR_ILLEGAL_LABEL)
+    err_bytes = err_packet.to_bytes()
+    sock2.sendall(err_bytes)
+
 def quit():
     sock.close()
     sock2.close()
@@ -50,6 +57,7 @@ def main(interactive):
         send_hellos()
         both_join()
         send_msg()
+        send_error()
         #sleep(8)
     if not interactive:
         sleep(10)

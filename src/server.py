@@ -25,15 +25,17 @@ class Server:
         self.sel = selectors.DefaultSelector()
         self.users = []
         self.rooms = {}
+        self.terminate_flag = False
 
     def close_on_err(self, sock, err_code):
-        close_on_err(sock, err_code)
+        try:
+            close_on_err(sock, err_code)
+        except ValueError:
+            pass # socket already closed
         try:
             self.sel.unregister(sock)
         except KeyError:
             pass # socket already unregistered
-        except ValueError:
-            pass # socket already closed
         self.clean_userlist(sock)
 
     def accept_new_user(self, sock):
@@ -54,7 +56,7 @@ class Server:
             self.close_on_err(client_sock, e.err_code)
         except ValueError as e:
             print('client connection at addr/port already exists')
-            self.close_on_err(client_sock, IRC_ERR) # unsure...
+            self.close_on_err(client_sock, IRC_ERR_UNKNOWN)
 
     def add_user_to_room(self, user, join_msg):
         # create room if it doesn't exist
@@ -99,14 +101,11 @@ class Server:
         except OSError:
             print(f'connection to {user.sock} errored while sending user list')
 
-    def remove_user_from_room(self, user):
-        pass # TODO
-
-    def send_list(self, user):
+    def send_room_list(self, user):
         pass # TODO
 
     def send_msg(self, user, msg):
-        print(f'received "{msg.payload}" from {user.username}') # TODO
+        print(f'received "{msg.payload}" from {user.username}') # DEBUG
         if msg.target_room in self.rooms.keys():
             tell_msg = IrcPacketTellMsg(
                 payload=msg.payload,
@@ -128,13 +127,25 @@ class Server:
             print(f'no room named "{msg.target_room}" exists... silently ignoring send for now')
 
 
-    def react_to_client_err(self, user):
-        pass # TODO
+    def react_to_client_err(self, user, err_msg):
+        print(f'closed on by {user.sock.getpeername()} due to error {err_msg.payload}')
+        print(f'removing {user.username} from server')
+        self.close_on_err(user.sock, IRC_ERR_UNKNOWN)
 
     def clean_userlist(self, bad_sock=None):
-        self.users = [user for user in self.users if user.sock != bad_sock and user.sock.fileno() != -1]
+        ''' Removes user from server's user list and all rooms '''
+        # find bad user using socket
+        bad_user = None
+        for user in self.users:
+            if user.sock == bad_sock:
+                bad_user = user
+                break
+        self.users.remove(bad_user)
+        #self.users = [user for user in self.users if user.sock != bad_sock and user.sock.fileno() != -1]
+        self.remove_user_from_room(bad_user)
 
     def remove_user_from_room(self, user, room_to_leave=None):
+        ''' if room_to_leave is None, removes user from all rooms '''
         bad_sock = user.sock
         for room in self.rooms:
             if room is not None and room != room_to_leave: 
@@ -150,50 +161,74 @@ class Server:
             sock.close()
         except socket.error as e:
             print(f'KEEPALIVE THREAD: connection to fd {sock} errored: {e}')
-            self.sel.unregister(sock)
-            self.clean_userlist(sock)
+            self.close_on_err(sock, IRC_ERR_UNKNOWN) # should maybe put a timeouterr in rfc
             sock.close()
 
     def send_keepalives(self, main_sock):
         ''' Should be its own thread '''
         while True:
             sleep(4)
+            if self.terminate_flag:
+                print('\nExiting keepalive thread')
+                return
             clients = [val.fileobj for val in self.sel.get_map().values() if val.fileobj != main_sock]
-            self.clean_userlist()
             for client in clients:
                 self.send_keepalive(client)
+
+    def setup_err(self, e=None):
+        if e is not None:
+            print(e)
+        retry = input('retry? (y/n): ')
+        if retry == 'y':
+            return self.main()
+        elif retry == 'n':
+            exit(1)
+        else:
+            print('invalid input')
+            return self.setup_err(e)
 
     def main(self):
         ''' creates a socket to listen on, initializes rooms and users lists, and enters a loop '''
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as main_sock:
             self.sel.register(main_sock, selectors.EVENT_READ)
             main_sock.settimeout(TIMEOUT)
-            main_sock.bind(('', IRC_SERVER_PORT))
+            try:
+                main_sock.bind(('', IRC_SERVER_PORT))
+            except OSError as e:
+                return self.setup_err(e)
             print("listening")
             main_sock.listen()
             print("looping")
             self.mainloop(main_sock)
 
+
     def mainloop(self, main_sock):
-        keepalive_thread = threading.Thread(target=self.send_keepalives, args=[main_sock])
-        keepalive_thread.start() # TODO handle OS errors gracefully
-        while True:
-            events = self.sel.select(timeout=TIMEOUT)
-            for key, _ in events:
-                if key.fileobj == main_sock: # new client (this should be a hello pkt)
-                    self.accept_new_user(main_sock)
-                else: # established client
-                    # (this should be a keepalive, msg, err, join, leave, or list pkt)
-                    client_sock = key.fileobj
-                    this_user = None
-                    for user in self.users:
-                        if user.sock == client_sock:
-                            this_user = user
-                            break
-                    if this_user is None:
-                        print(f'ERROR: could not find user with socket {client_sock}')
-                        continue
-                    self.receive_from_client(this_user)
+        try:
+            keepalive_thread = threading.Thread(target=self.send_keepalives, args=[main_sock])
+            keepalive_thread.start() # TODO handle OS errors gracefully
+        except OSError as e:
+            return self.setup_err(e)
+        try:
+            while True:
+                events = self.sel.select(timeout=TIMEOUT)
+                for key, _ in events:
+                    if key.fileobj == main_sock: # new client (this should be a hello pkt)
+                        self.accept_new_user(main_sock)
+                    else: # established client
+                        # (this should be a keepalive, msg, err, join, leave, or list pkt)
+                        client_sock = key.fileobj
+                        this_user = None
+                        for user in self.users:
+                            if user.sock == client_sock:
+                                this_user = user
+                                break
+                        if this_user is None:
+                            print(f'ERROR: could not find user with socket {client_sock}')
+                            continue
+                        self.receive_from_client(this_user)
+        except KeyboardInterrupt as kbi:
+            self.terminate_flag = True # terminate keepalive thread
+            exit(0)
 
     def receive_from_client(self, this_user):
         ''' receives a packet from the given socket and reacts to it '''
@@ -216,7 +251,9 @@ class Server:
                 print(f'received sendmsg from {this_user.sock.getpeername()}')
                 self.send_msg(this_user, msg_obj)
             elif header_obj.opcode == IRC_ERR:
-                print(f'received err from {this_user.sock.getpeername()}') # TODO
+                print(f'received err from {this_user.sock.getpeername()}')
+                msg_obj = IrcPacketErr().from_bytes(packet_bytes)
+                self.react_to_client_err(this_user, msg_obj)
             elif header_obj.opcode == IRC_JOINROOM:
                 print(f'received join from {this_user.sock.getpeername()}')
                 msg_obj = IrcPacketJoinRoom().from_bytes(packet_bytes)
