@@ -18,10 +18,17 @@ def send_hellos():
     sock2.connect(('localhost', IRC_SERVER_PORT))
     sock2.sendall(hello_bytes)
 
+def both_join():
+    global sock, sock2
+    join_packet = IrcPacketJoinRoom('test room')
+    join_bytes = join_packet.to_bytes()
+    sock.sendall(join_bytes)
+    sock2.sendall(join_bytes)
+
 def send_msg():
     # poke the server with a message (this should really mock the hello and join packets)
     global sock2
-    msg_packet = IrcPacketSendMsg(payload='This is a test message from Amelia', other='a room that doesn\'t exist')
+    msg_packet = IrcPacketSendMsg(payload='This is a test message from Amelia', target_room='test room')
     msg_bytes = msg_packet.to_bytes()
     sock2.sendall(msg_bytes)
 
@@ -41,8 +48,11 @@ def main(interactive):
             quit()
     else:
         send_hellos()
+        both_join()
         send_msg()
         #sleep(8)
+    if not interactive:
+        sleep(10)
     quit()
 
 if __name__ == '__main__':
