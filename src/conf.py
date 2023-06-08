@@ -436,7 +436,7 @@ class IrcPacketKeepalive(IrcPacketEmpty):
         super().__init__(IRC_KEEPALIVE)
 
 
-class IrcPacketListResp:
+class IrcPacketListResp(ABC):
     ''' has a header, holds a response to a list request
     '   header: irc_header object
     '   payload: list of labels
