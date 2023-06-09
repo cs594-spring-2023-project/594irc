@@ -5,6 +5,15 @@ from socket import *
 sock = socket(AF_INET, SOCK_STREAM)
 sock2 = socket(AF_INET, SOCK_STREAM)
 
+VALID_MESSAGES = ['', '1', 'testmsg', 'bigger message with other characters /.,?~!@#$%^&*()_+=-;\'":',
+            b'this has a line break right here0x0D0x0A^See? This is the same string! ^'.decode('ascii'),
+            'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.'
+]
+
+INVALID_MESSAGES = [' spaces in', 'bad places ', ' ']
+
+VALID_LABELS = ['xX_ChickenWing_Xx', '123bunchanumbers890', ':)']
+
 def send_hellos():
     # poke the server hellos
     global sock, sock2
@@ -39,6 +48,12 @@ def send_error():
     err_bytes = err_packet.to_bytes()
     sock2.sendall(err_bytes)
 
+def leave_room():
+    global sock
+    leave_packet = IrcPacketLeaveRoom('test room')
+    leave_bytes = leave_packet.to_bytes()
+    sock.sendall(leave_bytes)
+
 def quit():
     sock.close()
     sock2.close()
@@ -56,8 +71,9 @@ def main(interactive):
     else:
         send_hellos()
         both_join()
-        send_msg()
-        send_error()
+        #send_msg()
+        #send_error()
+        leave_room()
         #sleep(8)
     if not interactive:
         sleep(10)
