@@ -71,9 +71,9 @@ def main(interactive):
     else:
         send_hellos()
         both_join()
-        #send_msg()
-        #send_error()
-        leave_room()
+        send_msg()
+        send_error()
+        #leave_room()
         #sleep(8)
     if not interactive:
         sleep(10)

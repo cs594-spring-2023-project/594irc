@@ -314,15 +314,18 @@ class IrcPacketMsgOp(ABC):
     def __init__(self, opcode, payload=None, target_room=None, sending_user=None):
         self.init_opcode = opcode
         self.header = None
-        if payload is not None and target_room is not None:
-            self.header = IrcHeader(opcode, len(payload)+LABEL_LENGTH)
+        if payload is not None:
+            if payload[-1] != '\0':
+                payload += '\0'
+            if target_room is not None:
+                self.header = IrcHeader(opcode, len(payload)+LABEL_LENGTH)
         if opcode == IRC_TELLMSG: # tellmsg includes sending username
             self.header.length += LABEL_LENGTH # high coupling but works in a time crunch...
         self.payload = payload
         self.sending_user = sending_user
         self.target_room = target_room
 
-    def validate(self):
+    def validate(self, native_labels=False):
         ''' assumes that int.to_bytes and label_to_bytes are used in egress code '''
         self.header.validate()
         if self.header.opcode != self.init_opcode:
@@ -332,15 +335,18 @@ class IrcPacketMsgOp(ABC):
             expected_length += LABEL_LENGTH
         if self.header.length != expected_length:
             raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f"Invalid length: {self.header.length}")
+        payload = self.payload
+        target_room = self.target_room
+        sending_user = self.sending_user
         if native_labels:
-            if not self.validate_label(self.label_to_bytes(self.payload)):
-                raise IRCException(IRC_ERR_ILLEGAL_LABEL)
-        elif not validate_label(self.target_room):
+            target_room = label_to_bytes(target_room)
+            sending_user = label_to_bytes(sending_user) if sending_user is not None else None
+        if not validate_label(target_room):
             raise IRCException(IRC_ERR_ILLEGAL_LABEL)
-        if self.sending_user is not None and not validate_label(self.sending_user):
-            raise IRCException(IRC_ERR_ILLEGAL_LABEL)
-        if not validate_message(self.payload):
+        if not validate_message(payload):
             raise IRCException(IRC_ERR_ILLEGAL_MSG)
+        if sending_user is not None and not validate_label(sending_user):
+            raise IRCException(IRC_ERR_ILLEGAL_LABEL)
 
     def to_bytes(self):
         ''' validates fields
@@ -350,8 +356,8 @@ class IrcPacketMsgOp(ABC):
         self.validate(native_labels=True)
         # construct and return bytestring
         payload_bytes = self.payload.encode('ascii')
-        if payload_bytes[-1] != b'\x00':
-            payload_bytes += b'\x00'
+        if payload_bytes[-1] != 0:
+            payload_bytes += 0
             self.header.length += 1 # for null byte
         header_bytes = self.header.to_bytes()
         room_bytes = label_to_bytes(self.target_room)
@@ -481,24 +487,31 @@ class IrcPacketListResp(ABC):
         self.payload = payload
         self.identifier = identifier
     
-    def validate(self):
+    def validate(self, native_labels=False):
         ''' validates fields '''
         self.header.validate()
         if self.header.opcode != self.init_opcode:
             raise IRCException(IRC_ERR_ILLEGAL_OPCODE, f"Invalid opcode: {self.header.opcode}")
         if self.header.length != len(self.payload)*LABEL_LENGTH + LABEL_LENGTH if self.identifier is not None else 0:
             raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f"Invalid length: {self.header.length}")
-        if self.identifier is not None and not validate_label(self.identifier):
-            raise IRCException(IRC_ERR_ILLEGAL_LABEL, f"Invalid label: {self.identifier}")
-        for label in self.payload:
-            if not validate_label(label):
-                raise IRCException(IRC_ERR_ILLEGAL_LABEL, f"Invalid label: {label}")
+        if native_labels:
+            if self.identifier is not None and not validate_label(label_to_bytes(self.identifier)):
+                raise IRCException(IRC_ERR_ILLEGAL_LABEL, f"Invalid label: {self.identifier}")
+            for label in self.payload:
+                if not validate_label(label_to_bytes(label)):
+                    raise IRCException(IRC_ERR_ILLEGAL_LABEL, f"Invalid label: {label}")
+        else:
+            if self.identifier is not None and not validate_label(self.identifier):
+                raise IRCException(IRC_ERR_ILLEGAL_LABEL, f"Invalid label: {self.identifier}")
+            for label in self.payload:
+                if not validate_label(label):
+                    raise IRCException(IRC_ERR_ILLEGAL_LABEL, f"Invalid label: {label}")
     
     def to_bytes(self):
         ''' validates fields
         '   returns a byte representation of the packet
         '''
-        self.validate()
+        self.validate(native_labels=True)
         header_bytes = self.header.to_bytes()
         payload_bytes = b''
         for label in self.payload:
@@ -610,9 +623,9 @@ def validate_message(message):
     ''' checks if a msg body conforms to the rfc
     '   called only within packet classes, not client or server code
     '''
-    if message[-1] != '\x00':
+    if message[-1] != '\0':
         return False
-    if message[:-1].find('\x00') != -1:
+    if message[:-1].find('\0') != -1:
         return False
     if not validate_string(message):
         return False
@@ -629,4 +642,7 @@ def label_to_bytes(label):
 
 def strip_null_bytes(string):
     ''' strips null bytes from a string '''
-    return string.rstrip('\x00')
+    if type(string) is bytes:
+        return string.rstrip(b'\x00')
+    else:
+        return string.rstrip('\x00')

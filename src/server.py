@@ -101,7 +101,7 @@ class Server:
         except OSError:
             print(f'connection to {user.sock} errored while sending user list') # ERR
 
-    def send_room_list(self, list_rooms_msg):
+    def send_room_list(self, user, list_rooms_msg):
         try:
             room_list = [room for room in self.rooms.keys()]
             room_list_packet = IrcPacketListRoomsResp(payload=room_list)
@@ -114,7 +114,7 @@ class Server:
         print(f'relaying "{msg.payload}" from {user.username} to {msg.target_room}') # DEBUG
         if msg.target_room in self.rooms.keys():
             tell_msg = IrcPacketTellMsg(
-                payload=msg.payload,
+                payload=msg.payload.decode('ascii'),
                 target_room=msg.target_room,
                 sending_user=user.username
             )
@@ -270,7 +270,9 @@ class Server:
                 msg_obj = IrcPacketLeaveRoom().from_bytes(packet_bytes)
                 self.remove_user_from_room(this_user, msg_obj.payload)
             elif header_obj.opcode == IRC_LISTROOMS:
-                print(f'received listrooms from {this_user.sock.getpeername()}') # TODO # DEBUG
+                print(f'received listrooms from {this_user.sock.getpeername()}') # DEBUG
+                msg_obj = IrcPacketListRooms().from_bytes(packet_bytes)
+                self.send_room_list(this_user, msg_obj)
             elif header_obj.opcode == IRC_LISTUSERS:
                 print(f'received listusers from {this_user.sock.getpeername()}') # DEBUG
                 msg_obj = IrcPacketListUsers().from_bytes(packet_bytes)
