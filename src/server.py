@@ -136,7 +136,7 @@ class Server:
     def react_to_client_err(self, user, err_msg):
         print(f'closed on by {user.sock.getpeername()} due to error {err_msg.payload}') # ERR
         print(f'removing {user.username} from server') # ERR
-        self.close_on_err(user.sock, IRC_ERR_UNKNOWN)
+        self.close_on_err(user.sock, err_msg.payload)
 
     def clean_userlist(self, bad_sock=None):
         ''' Removes user from server's user list and all rooms '''

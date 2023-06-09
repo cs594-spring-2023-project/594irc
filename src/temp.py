@@ -70,10 +70,15 @@ def main(interactive):
             quit()
     else:
         send_hellos()
+        sleep(1)
         both_join()
+        sleep(1)
         send_msg()
+        sleep(1)
         send_error()
-        #leave_room()
+        sleep(1)
+        leave_room()
+        sleep(1)
         #sleep(8)
     if not interactive:
         sleep(10)
