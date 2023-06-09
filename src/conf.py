@@ -25,6 +25,25 @@
 
 from abc import ABC
 
+MAINMENU = """ 
+
+******************************  MENU  **********************************************
+No.  Functionality                                    Command
+************************************************************************************
+0.   To list all the available rooms and clients      :0 
+1.   To list rooms with members                       :1
+2.   To join or create the room if does not exist     :2 room_name 
+3.   To switch room                                   :3 new_room_name 
+4.   To leave current room                            :4 
+5.   To send a direct personal message                :5 receiver_username message
+6.   To send a direct message to current room         :6 message
+7.   To send a direct message to multiple room        :7 message
+8.   To broadcast message to everyone                 :8 message
+9.   To print menu again                              :9
+10.   To exit IRC                                     :10
+
+ """
+
 # network config
 IRC_SERVER_PORT = 7734
 TIMEOUT = 5
@@ -34,7 +53,7 @@ MAX_MSG_LENGTH = 7999
 # IRC version
 IRC_VERSION = 0x1337
 
-IRC_COMMAND_VALUES = [i for i in range(0x00, 0x0B)] # for validation
+IRC_COMMAND_VALUES = [i for i in range(0x00, 0x0B)]  # for validation
 # IRC commands ~ client or server
 IRC_ERR = 0x00
 IRC_KEEPALIVE = 0x01
@@ -50,7 +69,7 @@ IRC_LISTROOMS_RESP = 0x08
 IRC_LISTUSERS_RESP = 0x09
 IRC_TELLMSG = 0x0A
 
-IRC_ERR_VALUES = [i for i in range(0x10, 0x19)] # for validation
+IRC_ERR_VALUES = [i for i in range(0x10, 0x19)]  # for validation
 # IRC error codes
 IRC_ERR_UNKNOWN = 0x10
 IRC_ERR_ILLEGAL_OPCODE = 0x11
@@ -61,6 +80,7 @@ IRC_ERR_WRONG_VERSION = 0x15
 IRC_ERR_NAME_EXISTS = 0x16
 IRC_ERR_TOO_MANY_USERS = 0x17
 IRC_ERR_TOO_MANY_ROOMS = 0x18
+
 
 class IRCException(Exception):
     def __init__(self, code, msg=None):
@@ -83,15 +103,16 @@ class IrcHeader:
     opcode_length = 1
     length_length = 4
     header_length = opcode_length + length_length
+
     def __init__(self, opcode=None, length=None):
-        self.opcode = opcode # should be 1 byte
-        self.length = length # should be 4 bytes
-    
+        self.opcode = opcode  # should be 1 byte
+        self.length = length  # should be 4 bytes
+
     def validate(self):
         ''' assumes that int.to_bytes and label_to_bytes are used in egress code '''
         if self.opcode not in IRC_COMMAND_VALUES:
             raise IRCException(IRC_ERR_ILLEGAL_OPCODE, f"Invalid opcode: {self.opcode}")
-    
+
     def to_bytes(self):
         ''' validates fields
         '   returns a byte representation of the header
@@ -115,7 +136,7 @@ class IrcHeader:
         self.opcode = opcode
         self.length = length
         return self
-        
+
 
 class IrcPacketErr:
     ''' has a header, holds the body of an IRC error message
@@ -126,9 +147,10 @@ class IrcPacketErr:
     errcode_length = 1
     payload_length = errcode_length
     packet_length = IrcHeader.header_length + payload_length
+
     def __init__(self, payload=None):
         self.header = IrcHeader(IRC_ERR, IrcPacketErr.payload_length)
-        self.payload = payload # should be an IRC_ERR_* code, 1 byte
+        self.payload = payload  # should be an IRC_ERR_* code, 1 byte
 
     def validate(self):
         ''' assumes that int.to_bytes and label_to_bytes are used in egress code '''
@@ -156,7 +178,7 @@ class IrcPacketErr:
         '''
         # define field boundaries - may be a better way to do this, remove bytes as they're parsed?
         # error code
-        errcode_bytes = received_hello[IrcHeader.header_length : IrcHeader.header_length + IrcPacketErr.errcode_length]
+        errcode_bytes = received_hello[IrcHeader.header_length: IrcHeader.header_length + IrcPacketErr.errcode_length]
         # parse bytes and do not validate (connection dead)
         errcode = int.from_bytes(errcode_bytes, 'big')
         # construct and return
@@ -174,6 +196,7 @@ class IrcPacketHello:
     version_length = 2
     payload_length = LABEL_LENGTH + version_length
     packet_length = IrcHeader.header_length + payload_length
+
     def __init__(self, username=None, version=IRC_VERSION, length=None):
         if length is None:
             length = IrcPacketHello.payload_length
@@ -185,8 +208,8 @@ class IrcPacketHello:
         ''' assumes that int.to_bytes and label_to_bytes are used in egress code '''
         self.header.validate()
         if self.header.length != \
-            len(label_to_bytes(self.payload)) \
-            + len(self.version.to_bytes(IrcPacketHello.version_length, 'big')):
+                len(label_to_bytes(self.payload)) \
+                + len(self.version.to_bytes(IrcPacketHello.version_length, 'big')):
             raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f"Invalid length: {self.header.length}")
         if self.version != IRC_VERSION:
             raise IRCException(IRC_ERR_WRONG_VERSION, f"Invalid version: {self.version}")
@@ -214,12 +237,12 @@ class IrcPacketHello:
         # define field boundaries - may be a better way to do this, remove bytes as they're parsed?
         self.header = IrcHeader().from_bytes(received_hello[0:IrcHeader.header_length])
         name_bytes = received_hello[
-            IrcHeader.header_length : IrcHeader.header_length + LABEL_LENGTH
-        ]
+                     IrcHeader.header_length: IrcHeader.header_length + LABEL_LENGTH
+                     ]
         version_bytes = received_hello[IrcHeader.header_length + LABEL_LENGTH:]
         # parse bytes into self
         username_as_received = name_bytes.decode('ascii')
-        self.payload = username_as_received # keep as is for validation for now
+        self.payload = username_as_received  # keep as is for validation for now
         version = int.from_bytes(version_bytes, 'big')
         self.version = version
         # validate
@@ -227,7 +250,7 @@ class IrcPacketHello:
         # clean up and return
         self.payload = strip_null_bytes(username_as_received)
         return self
- 
+
 
 class IrcPacketRoomOp(ABC):
     ''' has a header, holds the body of an IRC join or leave message
@@ -236,6 +259,7 @@ class IrcPacketRoomOp(ABC):
     '''
     payload_length = LABEL_LENGTH
     packet_length = IrcHeader.header_length + payload_length
+
     def __init__(self, opcode, room_name=None):
         self.init_opcode = opcode
         length = IrcPacketRoomOp.payload_length
@@ -270,17 +294,17 @@ class IrcPacketRoomOp(ABC):
         # define field boundaries - may be a better way to do this, remove bytes as they're parsed?
         self.header = IrcHeader().from_bytes(received_hello[0:IrcHeader.header_length])
         room_name_bytes = received_hello[
-            IrcHeader.header_length : IrcHeader.header_length + LABEL_LENGTH
-        ]
+                          IrcHeader.header_length: IrcHeader.header_length + LABEL_LENGTH
+                          ]
         # parse bytes into self
         roomname_as_received = room_name_bytes.decode('ascii')
-        self.payload = roomname_as_received # keep as is for validation for now
+        self.payload = roomname_as_received  # keep as is for validation for now
         # validate
         self.validate()
         # clean up and return
         self.payload = strip_null_bytes(roomname_as_received)
         return self
- 
+
 
 class IrcPacketJoinRoom(IrcPacketRoomOp):
     ''' has a header, holds the body of an IRC join or leave message
@@ -289,6 +313,7 @@ class IrcPacketJoinRoom(IrcPacketRoomOp):
     '''
     payload_length = LABEL_LENGTH
     packet_length = IrcHeader.header_length + payload_length
+
     def __init__(self, room_name=None):
         super().__init__(IRC_JOINROOM, room_name)
 
@@ -300,6 +325,7 @@ class IrcPacketLeaveRoom(IrcPacketRoomOp):
     '''
     payload_length = LABEL_LENGTH
     packet_length = IrcHeader.header_length + payload_length
+
     def __init__(self, room_name=None):
         super().__init__(IRC_LEAVEROOM, room_name)
 
@@ -311,6 +337,7 @@ class IrcPacketMsgOp(ABC):
     '   target_room: room name
     '   sending_user: username (only for tellmsg)
     '''
+
     def __init__(self, opcode, payload=None, target_room=None, sending_user=None):
         self.init_opcode = opcode
         self.header = None
@@ -361,12 +388,12 @@ class IrcPacketMsgOp(ABC):
             self.header.length += 1 # for null byte
         header_bytes = self.header.to_bytes()
         room_bytes = label_to_bytes(self.target_room)
-        sender_bytes = b'' # should be empty for sendmsg
+        sender_bytes = b''  # should be empty for sendmsg
         if self.sending_user is not None:
             sender_bytes = label_to_bytes(self.sending_user)
         # target room is last LABEL_LENGTH bytes for sendmsg
         # sender is last next-to-last LABEL_LENGTH bytes for tellmsg
-        return header_bytes + payload_bytes + sender_bytes + room_bytes 
+        return header_bytes + payload_bytes + sender_bytes + room_bytes
 
     def from_bytes(self, received_msg):
         ''' parses a byte representation of the packet and validates the results
@@ -377,7 +404,7 @@ class IrcPacketMsgOp(ABC):
         # define field boundaries - may be a better way to do this, remove bytes as they're parsed?
         self.header = IrcHeader().from_bytes(received_msg[0:IrcHeader.header_length])
         # message body
-        payload_bytes = received_msg[IrcHeader.header_length : -LABEL_LENGTH]
+        payload_bytes = received_msg[IrcHeader.header_length: -LABEL_LENGTH]
         msg_body_as_received = payload_bytes.decode('ascii')
         # other label
         room_bytes = received_msg[-LABEL_LENGTH:]
@@ -398,9 +425,10 @@ class IrcPacketSendMsg(IrcPacketMsgOp):
     '   payload: message body
     '   other: recipient label
     '''
+
     def __init__(self, payload=None, target_room=None):
         super().__init__(IRC_SENDMSG, payload, target_room)
-        #self.sending_user = 
+        # self.sending_user =
 
 
 class IrcPacketTellMsg(IrcPacketMsgOp):
@@ -410,15 +438,16 @@ class IrcPacketTellMsg(IrcPacketMsgOp):
     '   other: sender label
     '   target_name: room name
     '''
+
     def __init__(self, payload=None, target_room=None, sending_user=None):
         super().__init__(IRC_TELLMSG, payload=payload, target_room=target_room, sending_user=sending_user)
-        #self.header.length += LABEL_LENGTH
+        # self.header.length += LABEL_LENGTH
 
     def from_bytes(self, received_msg):
-        base_obj = super().from_bytes(received_msg) # sending_user in last LABEL_LENGTH bytes of msg
+        base_obj = super().from_bytes(received_msg)  # sending_user in last LABEL_LENGTH bytes of msg
 
-    #def to_bytes(self):
-        #super().to_bytes() # debug
+    # def to_bytes(self):
+    # super().to_bytes() # debug
 
 
 class IrcPacketEmpty(ABC):
@@ -428,6 +457,7 @@ class IrcPacketEmpty(ABC):
     '''
     payload_length = 0
     packet_length = IrcHeader.header_length + payload_length
+
     def __init__(self, opcode):
         self.init_opcode = opcode
         self.header = IrcHeader(opcode, IrcPacketKeepalive.payload_length)
@@ -449,6 +479,7 @@ class IrcPacketListRooms(IrcPacketEmpty):
     '''
     payload_length = 0
     packet_length = IrcHeader.header_length + payload_length
+
     def __init__(self):
         super().__init__(IRC_LISTROOMS)
 
@@ -460,6 +491,7 @@ class IrcPacketListUsers(IrcPacketEmpty):
     '''
     payload_length = 0
     packet_length = IrcHeader.header_length + payload_length
+
     def __init__(self):
         super().__init__(IRC_LISTUSERS)
 
@@ -471,6 +503,7 @@ class IrcPacketKeepalive(IrcPacketEmpty):
     '''
     payload_length = 0
     packet_length = IrcHeader.header_length + payload_length
+
     def __init__(self):
         super().__init__(IRC_KEEPALIVE)
 
@@ -481,9 +514,10 @@ class IrcPacketListResp(ABC):
     '   payload: list of labels
     '   identifier: used for listusers, name of room to list users in
     '''
+
     def __init__(self, opcode, payload=None, identifier=None):
         self.init_opcode = opcode
-        self.header = IrcHeader(opcode, len(payload)*LABEL_LENGTH + LABEL_LENGTH if identifier is not None else 0)
+        self.header = IrcHeader(opcode, len(payload) * LABEL_LENGTH + LABEL_LENGTH if identifier is not None else 0)
         self.payload = payload
         self.identifier = identifier
     
@@ -492,7 +526,7 @@ class IrcPacketListResp(ABC):
         self.header.validate()
         if self.header.opcode != self.init_opcode:
             raise IRCException(IRC_ERR_ILLEGAL_OPCODE, f"Invalid opcode: {self.header.opcode}")
-        if self.header.length != len(self.payload)*LABEL_LENGTH + LABEL_LENGTH if self.identifier is not None else 0:
+        if self.header.length != len(self.payload) * LABEL_LENGTH + LABEL_LENGTH if self.identifier is not None else 0:
             raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f"Invalid length: {self.header.length}")
         if native_labels:
             if self.identifier is not None and not validate_label(label_to_bytes(self.identifier)):
@@ -517,7 +551,7 @@ class IrcPacketListResp(ABC):
         for label in self.payload:
             payload_bytes += label_to_bytes(label)
         if self.identifier is not None:
-            payload_bytes += label_to_bytes(self.identifier) # Last 32 bytes are always identifier for listusers
+            payload_bytes += label_to_bytes(self.identifier)  # Last 32 bytes are always identifier for listusers
         return header_bytes + payload_bytes
 
     def from_bytes(self, packet_bytes):
@@ -530,9 +564,9 @@ class IrcPacketListResp(ABC):
         # message body
         payload_bytes = packet_bytes[IrcHeader.header_length:]
         # parse bytes and validate
-        userlist = [payload_bytes[i:i+LABEL_LENGTH] for i in range(0, len(payload_bytes), LABEL_LENGTH)]
+        userlist = [payload_bytes[i:i + LABEL_LENGTH] for i in range(0, len(payload_bytes), LABEL_LENGTH)]
         self.payload = userlist
-        self.identifier = None # will be updated in subclass if needed
+        self.identifier = None  # will be updated in subclass if needed
         self.validate(native_labels=True)
         return self
 
@@ -543,6 +577,7 @@ class IrcPacketListRoomsResp(IrcPacketListResp):
     '   payload: list of labels
     '   identifier: used for listusers, name of room to list users in
     '''
+
     def __init__(self, payload=None):
         super().__init__(IRC_LISTROOMS_RESP, payload)
 
@@ -553,9 +588,10 @@ class IrcPacketListUsersResp(IrcPacketListResp):
     '   payload: list of labels
     '   identifier: used for listusers, name of room to list users in
     '''
+
     def __init__(self, payload=None, identifier=None):
         super().__init__(IRC_LISTUSERS_RESP, payload, identifier)
-    
+
     def from_bytes(self, packet_bytes):
         superclass_bytes = super().from_bytes(packet_bytes)
         # identifier is always last 32 bytes of payload
@@ -579,6 +615,7 @@ def close_on_err(sock, err_code, err_msg=None):
         sock.send(IrcPacketErr(err_code).to_bytes())
         sock.close()
 
+
 def validate_string(string):
     ''' checks that all chars in a string are between ascii 0x20 and 0x7E (inclusive)
     '   or are 0x0A or 0x0D
@@ -594,13 +631,14 @@ def validate_string(string):
         if not bytestring:
             if ord(char) < 0x20 or ord(char) > 0x7E and (ord(char) != 0x0A or ord(char) != 0x0D):
                 if ord(char) == 0x00 and i != 0:
-                    break # null terminator is allowed, but only if there's at least 1 char prior
+                    break  # null terminator is allowed, but only if there's at least 1 char prior
                 return False
         elif (char < 0x20 or char > 0x7E) and (char != 0x0A and char != 0x0D):
-            if char == 0x00 and i!= 0:
+            if char == 0x00 and i != 0:
                 break
             return False
     return True
+
 
 def validate_label(label):
     ''' checks if a label is a valid string & valid length
@@ -617,7 +655,7 @@ def validate_label(label):
     if not validate_string(label):
         return False
     return True
-    
+
 
 def validate_message(message):
     ''' checks if a msg body conforms to the rfc
@@ -633,12 +671,14 @@ def validate_message(message):
         return False
     return True
 
+
 def label_to_bytes(label):
     ''' converts a label to 32 byte null-padded bstring
     '   label: label to convert
     '   returns: byte representation of label
     '''
     return label.encode('ascii').ljust(32, b'\x00')
+
 
 def strip_null_bytes(string):
     ''' strips null bytes from a string '''
