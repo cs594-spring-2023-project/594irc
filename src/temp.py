@@ -69,6 +69,9 @@ def main(interactive):
         if response == 'exit':
             quit()
     else:
+        tellmsgtest = IrcPacketTellMsg(payload='testmsg', target_room='testroom', sending_user='testuser')
+        tellbytes = tellmsgtest.to_bytes()
+        tellmsgtest2 = IrcPacketTellMsg().from_bytes(tellbytes)
         send_hellos()
         sleep(1)
         both_join()
@@ -79,7 +82,6 @@ def main(interactive):
         sleep(1)
         leave_room()
         sleep(1)
-        #sleep(8)
     if not interactive:
         sleep(10)
     quit()

@@ -320,12 +320,13 @@ class IrcPacketMsgOp(ABC):
             if target_room is not None:
                 self.header = IrcHeader(opcode, len(payload)+LABEL_LENGTH)
         if opcode == IRC_TELLMSG: # tellmsg includes sending username
-            self.header.length += LABEL_LENGTH # high coupling but works in a time crunch...
+            if self.header is not None: # covers from_bytes case
+                self.header.length += LABEL_LENGTH # high coupling but works in a time crunch...
         self.payload = payload
         self.sending_user = sending_user
         self.target_room = target_room
 
-    def validate(self, native_labels=False):
+    def validate(self, native_labels=False, temp_msg=False):
         ''' assumes that int.to_bytes and label_to_bytes are used in egress code '''
         self.header.validate()
         if self.header.opcode != self.init_opcode:
@@ -343,7 +344,7 @@ class IrcPacketMsgOp(ABC):
             sending_user = label_to_bytes(sending_user) if sending_user is not None else None
         if not validate_label(target_room):
             raise IRCException(IRC_ERR_ILLEGAL_LABEL)
-        if not validate_message(payload):
+        if not temp_msg and not validate_message(payload):
             raise IRCException(IRC_ERR_ILLEGAL_MSG)
         if sending_user is not None and not validate_label(sending_user):
             raise IRCException(IRC_ERR_ILLEGAL_LABEL)
@@ -368,7 +369,7 @@ class IrcPacketMsgOp(ABC):
         # sender is last next-to-last LABEL_LENGTH bytes for tellmsg
         return header_bytes + payload_bytes + sender_bytes + room_bytes 
 
-    def from_bytes(self, received_msg):
+    def from_bytes(self, received_msg, temp_msg=False):
         ''' parses a byte representation of the packet and validates the results
         '   returns an IrcPacketMsg object
         '   intended to consume the output of socket.recv()
@@ -385,10 +386,11 @@ class IrcPacketMsgOp(ABC):
         # parse bytes and validate
         self.payload = msg_body_as_received
         self.target_room = room_as_received
-        self.validate()
+        self.validate(temp_msg=temp_msg)
         # construct and return
         self.target_room = strip_null_bytes(room_as_received)
-        self.payload = strip_null_bytes(payload_bytes)
+        if not temp_msg:
+            self.payload = strip_null_bytes(payload_bytes)
         return self
 
 
@@ -415,7 +417,11 @@ class IrcPacketTellMsg(IrcPacketMsgOp):
         #self.header.length += LABEL_LENGTH
 
     def from_bytes(self, received_msg):
-        base_obj = super().from_bytes(received_msg) # sending_user in last LABEL_LENGTH bytes of msg
+        base_obj = super().from_bytes(received_msg, temp_msg=True) # sending_user in last LABEL_LENGTH bytes of msg
+        base_msg = base_obj.payload
+        self.sending_user = base_msg[-LABEL_LENGTH:]
+        self.payload = base_msg[:-LABEL_LENGTH]
+        return self
 
     #def to_bytes(self):
         #super().to_bytes() # debug
