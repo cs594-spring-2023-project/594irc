@@ -21,11 +21,11 @@ Command.    Functionality
 #3          To join multiple rooms at once           
 #4          To switch room                                   
 #5          To leave current room                             
-#5          To send a direct message to current room          
-#6          To send a direct message to multiple room  
-#7          To send a direct message to other user         
-#8          To print menu again   
-#9          To close the connection                                                        
+#6          To send a direct message to current room          
+#7          To send a direct message to multiple room  
+#8          To send a direct message to other user         
+#9          To print menu again   
+#10         To close the connection                                                        
 
 """
 
@@ -34,9 +34,12 @@ class Client:
 
     def __init__(self):
         print('Starting Client')
+        self.client_name = None
         self.terminate_flag = False
-        self.current_room = 'eee'
+        self.current_room = None
         self.client_socket = None
+        self.room_list = []
+        self.all_server_rooms = []
 
     def receive_from_server(self):
         sock = self.client_socket
@@ -66,7 +69,9 @@ class Client:
                 # 8 - list of all rooms
                 elif header_obj.opcode == IRC_LISTROOMS_RESP:
                     msg_obj = IrcPacketListRoomsResp().from_bytes(packet_bytes)
+                    self.all_server_rooms = msg_obj.payload
                     print(msg_obj.payload)
+
 
                 # 9 - list of all clients
                 elif header_obj.opcode == IRC_LISTUSERS_RESP:
@@ -97,17 +102,71 @@ class Client:
                 print(f'KEEPALIVE THREAD: connection to fd {sock} errored: {e}')  # ERR
                 print('Closing the socket')
                 sock.close()
-                exit(-1)
+                exit()
 
-    def list_all_Rooms(self):
+    def list_all_rooms(self):
         packet = IrcPacketListRooms()
         self.client_socket.sendall(packet.to_bytes())
 
     def list_all_clients(self):
-        packet = IrcPacketListUsers()
+        if self.current_room is None:
+            print('Your are not in a room. Please join a room')
+        else:
+            packet = IrcPacketListUsers(self.current_room)
+            self.client_socket.sendall(packet.to_bytes())
+
+    def join_create_room(self, input_room=None):
+        room_name = input_room
+        if room_name is None:
+            room_name = input('enter room name')
+        print(room_name)
+        packet = IrcPacketJoinRoom(room_name=room_name)
         self.client_socket.sendall(packet.to_bytes())
+        self.current_room = room_name
+        if room_name not in self.room_list:
+            self.room_list.append(room_name)
+
+    def join_multiple_room(self):
+        # get all room list from server, present it with numbers to user and ask to enter number of room to join
+        self.list_all_rooms()
+        for index, element in enumerate(self.all_server_rooms):
+            print(f"[{index}] {element}")
+        input_str = input("Enter the indices separated by commas: ")
+        indices = input_str.split(",")
+        for index in indices:
+            index = int(index.strip())
+            if 0 <= index < len(self.all_server_rooms):
+                print(f"Joining {self.all_server_rooms[index]}")
+                self.join_create_room(input_room=self.all_server_rooms[index])
+            else:
+                print(f"Invalid index: [{index}]")
+
+    def switch_room(self):
+        print(self.room_list)
+        room_name = input('enter room name you want to switch >')
+        if room_name not in self.room_list:
+            print('you have not joined this room yet. please join this room first')
+        elif room_name in self.room_list:
+            self.current_room = room_name
+
+    def leave_room(self):
+        if self.current_room is not None:
+            print(f'Removing yourself from {self.current_room}')
+            packet = IrcPacketLeaveRoom(room_name=self.current_room)
+            self.client_socket.sendall(packet.to_bytes());
+            self.room_list.remove(self.current_room)
+            self.current_room = None
+        else:
+            print('You are not in any room. Switch to or join room first')
+
+    def send_msg_to_room(self):
+        print(f'Enter message you want to send to {self.current_room}')
+        message = input()
+        packet = IrcPacketSendMsg(payload=message, target_room=self.current_room)
+        self.client_socket.sendall(packet.to_bytes());
 
     def create_connection(self):
+        self.client_name = input('Input your name > ')
         server_address = ('', IRC_SERVER_PORT)
         join_packet = IrcPacketHello(self.client_name)
         join_bytes = join_packet.to_bytes()
@@ -116,75 +175,65 @@ class Client:
             self.client_socket.connect(server_address)
             self.client_socket.sendall(join_bytes)
         except ConnectionRefusedError as e:
+            # todo check for actual successful connection before printing manual
             print("Connection reused by server. Either can't find server, or server is not online")
             exit(-1)
         finally:
+            sleep(1)
             print(CLIENT_MANUAL)
 
-    def main(self):
-
-        self.client_name = input('Input your name > ')
-
-        self.create_connection()
-
-        # keepalive
-        try:
-            keep_alive_thread = threading.Thread(target=self.send_keepalives)
-            keep_alive_thread.start()
-        except OSError as e:
-            print('keep alive error')
-
-        # receive thread
+    def start_receiving_thread(self):
         try:
             receiving_thread = threading.Thread(target=self.receive_from_server)
             receiving_thread.start()
         except OSError as e:
             print('receiving thread error')
 
+    # keepalive
+    def start_keep_alive_thread(self):
+        try:
+            keep_alive_thread = threading.Thread(target=self.send_keepalives)
+            keep_alive_thread.start()
+        except OSError as e:
+            print('keep alive error')
+
+    def main_loop(self):
         while True:
             user_input = input('GIVE INPUT> ')
             user_input = user_input.strip()
             try:
-                # 0 list all the available rooms
+                # 0 list all the available rooms ✅
                 if '#0' in user_input:
-                    self.list_all_Rooms()
+                    self.list_all_rooms()
 
-                # 1 list all members of current room
+                # 1 list all members of current room ✅
                 # check if the current room is not none
                 elif '#1' in user_input:
                     self.list_all_clients()
 
-                # 2 join or create the room if it does not exist
+                # 2 join or create the room if it does not exist ✅
                 elif '#2' in user_input:
-                    room_name = input('enter room name')
-                    print(room_name)
-                    packet = IrcPacketJoinRoom(room_name=room_name)
-                    self.client_socket.sendall(packet.to_bytes());
-                    self.current_room = room_name
+                    self.join_create_room()
 
-                # 3 join multiple rooms at once
-                # todo give client list of room with number and ask to enter the nnumbers
+                # 3 join multiple rooms at once ✅
                 elif '#3' in user_input:
-                    pass
+                    self.join_multiple_room()
 
-                # 4 switch room
-                # todo update current room
+                # 4 switch room ✅
                 elif '#4' in user_input:
-                    packet = IrcPacketLeaveRoom(room_name=self.current_room)
-                    self.client_socket.sendall(packet.to_bytes());
-                    self.current_room = None
+                    self.switch_room()
 
-                # 5 leave current room
-                # todo make current room None
+
+                # 5 leave current room ✅
                 elif '#5' in user_input:
-                    pass
+                    self.leave_room()
+
 
                 # 6 send a direct message to current room
                 # todo ask for input and send message
                 elif '#6' in user_input:
-                    message = 'heellloo'
-                    packet = IrcPacketSendMsg(payload=message, target_room=self.current_room)
-                    self.client_socket.sendall(packet.to_bytes());
+                    self.send_msg_to_room()
+
 
                 # 7 send a direct message to multiple room
                 # todo give list of rooms, ask to enter number with comma separated, and ask for messsage.
@@ -210,22 +259,16 @@ class Client:
                 self.client_socket.close()
                 exit(-1)
 
+    def main(self):
+
+        self.create_connection()
+
+        self.start_receiving_thread()
+
+        self.start_keep_alive_thread()
+
+        self.main_loop()
+
 
 if __name__ == '__main__':
     Client().main()
-
-# 1. Take client name from user
-# 2. validate it (part of irchellopacket)
-# 3. Send join message.
-# 4. Keep listening for incoming messages.
-# 5. send room join message ( server will create room if does not exist )
-# 6. Leave the room
-# 7. List all rooms
-# 8. List all clients
-# 9. direct message
-# 10. message into a channel
-# 11. message into multiple channel at once
-# 12. Join multiple rooms at once
-# 13. Client can gracefully handle server crashes ( how? )
-#
-#
