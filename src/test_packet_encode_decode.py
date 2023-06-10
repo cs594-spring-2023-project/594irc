@@ -118,17 +118,33 @@ def test_tell():
     assert tellmsgtest2.sending_user == usr
     print('test_tell passed')
 
-def test_all():
+def expect_exception(func, *args, ex_type):
+    try:
+        func(*args)
+        assert False
+    except ex_type as e:
+        pass
+
+#def test_exceptions():
+    #print('entering test_exceptions')
+        # header exceptions
+        #   opcode out of range
+        #expect_exception(IrcHeader, 0x100, 0)
+
+
+def all():
     print('entering test_all')
-    # run every function in the namespace that starts with test_ except this one
+    # run every function in the namespace that starts with test_
     funcs = []
+    iterations = 100
     for func in globals().values():
-        if callable(func) and func.__name__[0:5] == 'test_' and func != test_all:
-            funcs.append(func)
+        if callable(func) and func.__name__[0:5] == 'test_':
+            for i in range(iterations):
+                funcs.append(func)
     shuffle(funcs)
     for func in  funcs:
         func()
     print('all tests passed')
 
 if __name__ == '__main__':
-    test_all()
+    all()
