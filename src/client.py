@@ -7,11 +7,11 @@ import socket
 import sys
 import threading
 from time import sleep
+import multiprocessing
 
 from conf import *
 
 CLIENT_MANUAL = """ 
-
 ******************************  MANUAL  ********************************************
 Command.    Functionality                                    
 ************************************************************************************
@@ -26,7 +26,6 @@ Command.    Functionality
 #8          To send a direct message to other user         
 #9          To print menu again   
 #10         To close the connection                                                        
-
 """
 
 
@@ -51,7 +50,7 @@ class Client:
                 packet_bytes = header_bytes + payload_bytes
 
                 if not header_obj.opcode == 1:
-                    print(header_obj.opcode)
+                    print(f'DEBUG {header_obj.opcode}')
 
                 # depending on opcode do stuff.
                 # 0 - error
@@ -70,21 +69,35 @@ class Client:
                 elif header_obj.opcode == IRC_LISTROOMS_RESP:
                     msg_obj = IrcPacketListRoomsResp().from_bytes(packet_bytes)
                     self.all_server_rooms = msg_obj.payload
-                    print(msg_obj.payload)
+                    if len(self.all_server_rooms) != 0:
+                        print('List of all rooms on server:')
+                        for index, element in enumerate(self.all_server_rooms):
+                            print(f"{element}")
+                    else:
+                        print('No rooms created on server.')
 
 
                 # 9 - list of all clients
                 elif header_obj.opcode == IRC_LISTUSERS_RESP:
                     msg_obj = IrcPacketListUsersResp().from_bytes(packet_bytes)
                     print(msg_obj.payload)
+                    if len(msg_obj.payload) != 0:
+                        print(f'List of users in {self.current_room}:')
+                        for index, element in enumerate(msg_obj.payload):
+                            print(f"{element}")
+
+
 
                 # 10 - message
                 elif header_obj.opcode == IRC_TELLMSG:
                     msg_obj = IrcPacketTellMsg().from_bytes(packet_bytes)
-                    print(msg_obj.payload)
+                    if msg_obj.sending_user != self.client_name:
+                        print(f'{msg_obj.sending_user} in room {msg_obj.target_room} : {msg_obj.payload}')
+                    else:
+                        print(f'You in room {msg_obj.target_room} : {msg_obj.payload}')
 
             except Exception as e:
-                print('receive_from_server error')
+                print('DEBUG - receive_from_server error')
                 print(e)
                 sock.close()
                 sys.exit(-1)
@@ -110,7 +123,7 @@ class Client:
 
     def list_all_clients(self):
         if self.current_room is None:
-            print('Your are not in a room. Please join a room')
+            print('Your are not in a room. Please join a room.')
         else:
             packet = IrcPacketListUsers(self.current_room)
             self.client_socket.sendall(packet.to_bytes())
@@ -118,7 +131,7 @@ class Client:
     def join_create_room(self, input_room=None):
         room_name = input_room
         if room_name is None:
-            room_name = input('enter room name')
+            room_name = input('Enter room name > ')
         print(room_name)
         packet = IrcPacketJoinRoom(room_name=room_name)
         self.client_socket.sendall(packet.to_bytes())
@@ -128,13 +141,12 @@ class Client:
 
     def join_multiple_room(self):
         # get all room list from server, present it with numbers to user and ask to enter number of room to join
-        self.list_all_rooms()
         for index, element in enumerate(self.all_server_rooms):
-            print(f"[{index}] {element}")
+            print(f"[{index+1}] {element}")
         input_str = input("Enter the indices separated by commas: ")
         indices = input_str.split(",")
         for index in indices:
-            index = int(index.strip())
+            index = int(index.strip())-1
             if 0 <= index < len(self.all_server_rooms):
                 print(f"Joining {self.all_server_rooms[index]}")
                 self.join_create_room(input_room=self.all_server_rooms[index])
@@ -143,9 +155,9 @@ class Client:
 
     def switch_room(self):
         print(self.room_list)
-        room_name = input('enter room name you want to switch >')
+        room_name = input('Enter room name you want to switch > ')
         if room_name not in self.room_list:
-            print('you have not joined this room yet. please join this room first')
+            print('You have not joined this room yet. please join this room first')
         elif room_name in self.room_list:
             self.current_room = room_name
 
@@ -159,17 +171,43 @@ class Client:
         else:
             print('You are not in any room. Switch to or join room first')
 
-    def send_msg_to_room(self):
-        print(f'Enter message you want to send to {self.current_room}')
-        message = input()
-        packet = IrcPacketSendMsg(payload=message, target_room=self.current_room)
+    def send_msg_to_room(self, input_room=None, input_message=None):
+        room = input_room
+        message = input_message
+        if room is None:
+            room = self.current_room
+        if message is None:
+            print(f'Enter message you want to send to {room}')
+            message = input()
+        packet = IrcPacketSendMsg(payload=message, target_room=room)
         self.client_socket.sendall(packet.to_bytes());
+
+    def send_msg_to_multiple_rooms(self):
+        for index, element in enumerate(self.room_list):
+            print(f"[{index+1}] {element}")
+        input_str = input("Enter the indices separated by commas: ")
+        input_msg = input('Enter message to send')
+        indices = input_str.split(",")
+        for index in indices:
+            index = int(index.strip())-1
+            if 0 <= index < len(self.room_list):
+                print(f"Sending message to {self.room_list[index]}")
+                self.send_msg_to_room(input_room=self.room_list[index], input_message=input_msg)
+            else:
+                print(f"Invalid index: [{index}]")
+        pass
 
     def create_connection(self):
         self.client_name = input('Input your name > ')
         server_address = ('', IRC_SERVER_PORT)
-        join_packet = IrcPacketHello(self.client_name)
-        join_bytes = join_packet.to_bytes()
+
+        try:
+            join_packet = IrcPacketHello(self.client_name)
+            join_bytes = join_packet.to_bytes()
+        except IRCException as e:
+            print('IRCException')
+            print(e.err_code)
+
         try:
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.client_socket.connect(server_address)
@@ -229,27 +267,25 @@ class Client:
                     self.leave_room()
 
 
-                # 6 send a direct message to current room
-                # todo ask for input and send message
+                # 6 send a direct message to current room ✅
                 elif '#6' in user_input:
                     self.send_msg_to_room()
 
 
                 # 7 send a direct message to multiple room
-                # todo give list of rooms, ask to enter number with comma separated, and ask for messsage.
                 elif '#7' in user_input:
-                    pass
+                    self.send_msg_to_multiple_rooms()
 
-                # 7 send a direct message to other user
+                # 8 send a direct message to other user
                 # todo ask username and then message. both on separate line
                 elif '#8' in user_input:
                     print("this is the command")
 
-                # 8 print the manual
+                # 9 print the manual
                 elif '#9' in user_input:
                     print(CLIENT_MANUAL)
 
-                # 9 close the connection
+                # 10 close the connection
                 else:
                     pass
 
