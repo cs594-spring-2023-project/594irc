@@ -80,7 +80,7 @@ class IrcHeader:
     def validate(self):
         ''' assumes that int.to_bytes and label_to_bytes are used in egress code '''
         if self.opcode not in IRC_COMMAND_VALUES:
-            raise IRCException(IRC_ERR_ILLEGAL_OPCODE, f"Invalid opcode: {self.opcode}")
+            raise IRCException(IRC_ERR_ILLEGAL_OPCODE, f'Invalid opcode: {self.opcode}')
 
     def to_bytes(self):
         ''' validates fields
@@ -125,9 +125,9 @@ class IrcPacketErr:
         ''' assumes that int.to_bytes and label_to_bytes are used in egress code '''
         self.header.validate()
         if self.header.length != IrcPacketErr.payload_length:
-            raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f"Invalid length: {self.header.length}")
+            raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f'Invalid length: {self.header.length}')
         if self.payload not in IRC_ERR_VALUES:
-            raise IRCException(IRC_ERR_ILLEGAL_MSG, f"Invalid error code: {self.payload}")
+            raise IRCException(IRC_ERR_ILLEGAL_MSG, f'Invalid error code: {self.payload}')
 
     def to_bytes(self):
         ''' validates fields
@@ -179,15 +179,14 @@ class IrcPacketHello:
         if self.header.length != \
                 len(label_to_bytes(self.payload)) \
                 + len(self.version.to_bytes(IrcPacketHello.version_length, 'big')):
-            raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f"Invalid length: {self.header.length}")
+            raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f'Invalid length: {self.header.length}')
         if self.version != IRC_VERSION:
-            raise IRCException(IRC_ERR_WRONG_VERSION, f"Invalid version: {self.version}")
+            raise IRCException(IRC_ERR_WRONG_VERSION, f'Invalid version: {self.version}')
         if native_labels:
             if not validate_label(label_to_bytes(self.payload)):
                 raise IRCException(IRC_ERR_ILLEGAL_LABEL, f'Invalid username: {self.payload}')
         elif not validate_label(self.payload):
-            #todo preveet server crashes
-            raise ValueError(f"Invalid username: {self.payload}")
+            raise IRCException(IRC_ERR_ILLEGAL_LABEL, f'Invalid username: {self.payload}')
 
     def to_bytes(self):
         ''' validates fields
@@ -240,12 +239,12 @@ class IrcPacketRoomOp(ABC):
         ''' assumes that int.to_bytes and label_to_bytes are used in egress code '''
         self.header.validate()
         if self.header.length != len(label_to_bytes(self.payload)):
-            raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f"Invalid length: {self.header.length}")
+            raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f'Invalid length: {self.header.length}')
         if native_labels:
             if not validate_label(label_to_bytes(self.payload)):
                 raise IRCException(IRC_ERR_ILLEGAL_LABEL, f'Invalid room name: {self.payload}')
         elif not validate_label(self.payload):
-            raise ValueError(f"Invalid room name: {self.payload}")
+            raise IRCException(IRC_ERR_ILLEGAL_LABEL, f'Invalid room name: {self.payload}')
 
     def to_bytes(self):
         ''' validates fields
@@ -332,7 +331,7 @@ class IrcPacketMsgOp(ABC):
         if self.sending_user is not None:
             expected_length += LABEL_LENGTH
         if self.header.length != expected_length:
-            raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f"Invalid length: {self.header.length}")
+            raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f'Invalid length: {self.header.length}')
         payload = self.payload
         target_room = self.target_room
         sending_user = self.sending_user
@@ -443,7 +442,7 @@ class IrcPacketEmpty(ABC):
         '   validates fields
         '''
         if self.header.opcode != self.init_opcode:
-            raise ValueError(f"Invalid opcode: {self.header.opcode}")
+            raise IRCException(IRC_ERR_ILLEGAL_OPCODE, f'Invalid opcode: {self.header.opcode}')
         header_bytes = self.header.to_bytes()
         return header_bytes
 
@@ -488,12 +487,12 @@ class IrcPacketListUsers():
     def validate(self, native_labels=False, temp_payload=False):
         self.header.validate()
         if self.header.opcode != IRC_LISTUSERS:
-            raise ValueError(f"Invalid opcode: {self.header.opcode}")
+            raise IRCException(IRC_ERR_ILLEGAL_OPCODE, f'Invalid opcode: {self.header.opcode}')
         if not temp_payload:
             if self.header.length != IrcPacketListUsers.payload_length:
-                raise ValueError(f"Invalid length: {self.header.length}")
+                raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f'Invalid length: {self.header.length}')
             if not native_labels and not validate_label(self.payload):
-                raise ValueError(f"Invalid payload: {self.payload}")
+                raise IRCException(IRC_ERR_ILLEGAL_LABEL, f'Invalid payload: {self.payload}')
 
     def to_bytes(self):
         ''' returns a byte representation of the packet '''
@@ -533,21 +532,21 @@ class IrcPacketListResp(ABC):
         ''' validates fields '''
         self.header.validate()
         if self.header.opcode != self.init_opcode:
-            raise IRCException(IRC_ERR_ILLEGAL_OPCODE, f"Invalid opcode: {self.header.opcode}")
+            raise IRCException(IRC_ERR_ILLEGAL_OPCODE, f'Invalid opcode: {self.header.opcode}')
         if self.header.length != len(self.payload) * LABEL_LENGTH + LABEL_LENGTH if self.identifier is not None else 0:
-            raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f"Invalid length: {self.header.length}")
+            raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f'Invalid length: {self.header.length}')
         if native_labels:
             if self.identifier is not None and not validate_label(label_to_bytes(self.identifier)):
-                raise IRCException(IRC_ERR_ILLEGAL_LABEL, f"Invalid label: {self.identifier}")
+                raise IRCException(IRC_ERR_ILLEGAL_LABEL, f'Invalid label: {self.identifier}')
             for label in self.payload:
                 if not validate_label(label_to_bytes(label)):
-                    raise IRCException(IRC_ERR_ILLEGAL_LABEL, f"Invalid label: {label}")
+                    raise IRCException(IRC_ERR_ILLEGAL_LABEL, f'Invalid label: {label}')
         else:
             if self.identifier is not None and not validate_label(self.identifier):
-                raise IRCException(IRC_ERR_ILLEGAL_LABEL, f"Invalid label: {self.identifier}")
+                raise IRCException(IRC_ERR_ILLEGAL_LABEL, f'Invalid label: {self.identifier}')
             for label in self.payload:
                 if not validate_label(label):
-                    raise IRCException(IRC_ERR_ILLEGAL_LABEL, f"Invalid label: {label}")
+                    raise IRCException(IRC_ERR_ILLEGAL_LABEL, f'Invalid label: {label}')
     
     def to_bytes(self):
         ''' validates fields
