@@ -66,6 +66,7 @@ def quit():
     exit(0)
 
 def main(interactive):
+    global sock
     while interactive:
         response = input('> ')
         if response == 'hellos':
@@ -86,6 +87,9 @@ def main(interactive):
         sleep(1)
         list_rooms()
         sleep(1)
+        rawbytes = sock.recv(1024)
+        pkt = IrcPacketListRoomsResp().from_bytes(rawbytes)
+        print(pkt)
         send_msg()
         sleep(1)
         send_error()
