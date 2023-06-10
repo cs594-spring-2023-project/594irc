@@ -9,19 +9,6 @@
 '   validate raises an IRCException on protocol violations, which generally should lead to the detecting
 '   party informing the other party of the error and closing the connection.
 '''
-# TODO packet types:
-#     name          done?  tested?
-#   - header        ✅    ✅
-#   - error         ✅    ❌
-#   - hello         ✅    ✅
-#   - keepalive     ✅    ✅
-#   - list rooms    ✅    ❌
-#   - list users    ✅    ✅
-#   - list resps    ✅    ❌
-#   - join room     ✅    ✅
-#   - leave room    ✅    ❌
-#   - send message  ✅    ✅
-#   - tell message  ✅    ✅
 
 from abc import ABC
 
@@ -197,7 +184,7 @@ class IrcPacketHello:
             raise IRCException(IRC_ERR_WRONG_VERSION, f"Invalid version: {self.version}")
         if native_labels:
             if not validate_label(label_to_bytes(self.payload)):
-                raise IRCException(IRC_ERR_ILLEGAL_LABEL)
+                raise IRCException(IRC_ERR_ILLEGAL_LABEL, f'Invalid username: {self.payload}')
         elif not validate_label(self.payload):
             #todo preveet server crashes
             raise ValueError(f"Invalid username: {self.payload}")
@@ -256,7 +243,7 @@ class IrcPacketRoomOp(ABC):
             raise IRCException(IRC_ERR_ILLEGAL_LENGTH, f"Invalid length: {self.header.length}")
         if native_labels:
             if not validate_label(label_to_bytes(self.payload)):
-                raise IRCException(IRC_ERR_ILLEGAL_LABEL)
+                raise IRCException(IRC_ERR_ILLEGAL_LABEL, f'Invalid room name: {self.payload}')
         elif not validate_label(self.payload):
             raise ValueError(f"Invalid room name: {self.payload}")
 
