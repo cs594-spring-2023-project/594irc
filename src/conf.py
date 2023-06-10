@@ -417,7 +417,7 @@ class IrcPacketMsgOp(ABC):
         # construct and return
         self.target_room = strip_null_bytes(room_as_received)
         if not temp_msg:
-            self.payload = strip_null_bytes(payload_bytes)
+            self.payload = strip_null_bytes(self.payload)
         return self
 
 
@@ -448,8 +448,8 @@ class IrcPacketTellMsg(IrcPacketMsgOp):
     def from_bytes(self, received_msg):
         base_obj = super().from_bytes(received_msg, temp_msg=True) # sending_user in last LABEL_LENGTH bytes of msg
         base_msg = base_obj.payload
-        self.sending_user = base_msg[-LABEL_LENGTH:]
-        self.payload = base_msg[:-LABEL_LENGTH]
+        self.sending_user = strip_null_bytes(base_msg[-LABEL_LENGTH:])
+        self.payload = strip_null_bytes(base_msg[:-LABEL_LENGTH])
         return self
 
     # def to_bytes(self):
@@ -466,7 +466,7 @@ class IrcPacketEmpty(ABC):
 
     def __init__(self, opcode):
         self.init_opcode = opcode
-        self.header = IrcHeader(opcode, IrcPacketKeepalive.payload_length)
+        self.header = IrcHeader(opcode, IrcPacketEmpty.payload_length)
 
     def to_bytes(self):
         ''' returns a byte representation of the packet
@@ -476,6 +476,18 @@ class IrcPacketEmpty(ABC):
             raise ValueError(f"Invalid opcode: {self.header.opcode}")
         header_bytes = self.header.to_bytes()
         return header_bytes
+
+
+class IrcPacketKeepalive(IrcPacketEmpty):
+    ''' has a header, holds the body of an IRC keepalive message
+    '   header: irc_header object
+    '  !No need for a from_bytes method, keepalive messages are not parsed
+    '''
+    payload_length = 0
+    packet_length = IrcHeader.header_length + payload_length
+
+    def __init__(self):
+        super().__init__(IRC_KEEPALIVE)
 
 
 class IrcPacketListRooms(IrcPacketEmpty):
@@ -490,28 +502,43 @@ class IrcPacketListRooms(IrcPacketEmpty):
         super().__init__(IRC_LISTROOMS)
 
 
-class IrcPacketListUsers(IrcPacketEmpty):
+class IrcPacketListUsers():
     ''' has a header, holds the body of an IRC list users message
     '   header: irc_header object
     '  !No need for a from_bytes method, keepalive messages are not parsed
     '''
-    payload_length = 0
+    payload_length = LABEL_LENGTH
     packet_length = IrcHeader.header_length + payload_length
 
-    def __init__(self):
-        super().__init__(IRC_LISTUSERS)
+    def __init__(self, room_name=None):
+        self.header = IrcHeader(IRC_LISTUSERS, IrcPacketListUsers.payload_length)
+        self.header.length = IrcPacketListUsers.payload_length
+        self.payload = room_name
+    
+    def validate(self, native_labels=False, temp_payload=False):
+        self.header.validate()
+        if self.header.opcode != IRC_LISTUSERS:
+            raise ValueError(f"Invalid opcode: {self.header.opcode}")
+        if not temp_payload:
+            if self.header.length != IrcPacketListUsers.payload_length:
+                raise ValueError(f"Invalid length: {self.header.length}")
+            if not native_labels and not validate_label(self.payload):
+                raise ValueError(f"Invalid payload: {self.payload}")
 
+    def to_bytes(self):
+        ''' returns a byte representation of the packet '''
+        self.validate(native_labels=True)
+        header_bytes = self.header.to_bytes()
+        payload_bytes = label_to_bytes(self.payload)
+        return header_bytes + payload_bytes
+    
+    def from_bytes(self, received_msg):
+        self.header = IrcHeader().from_bytes(received_msg[0:IrcHeader.header_length])
+        self.payload = received_msg[IrcHeader.header_length:].decode('ascii')
+        self.validate()
+        self.payload = strip_null_bytes(self.payload)
+        return self
 
-class IrcPacketKeepalive(IrcPacketEmpty):
-    ''' has a header, holds the body of an IRC keepalive message
-    '   header: irc_header object
-    '  !No need for a from_bytes method, keepalive messages are not parsed
-    '''
-    payload_length = 0
-    packet_length = IrcHeader.header_length + payload_length
-
-    def __init__(self):
-        super().__init__(IRC_KEEPALIVE)
 
 
 class IrcPacketListResp(ABC):
@@ -571,9 +598,11 @@ class IrcPacketListResp(ABC):
         payload_bytes = packet_bytes[IrcHeader.header_length:]
         # parse bytes and validate
         userlist = [payload_bytes[i:i + LABEL_LENGTH] for i in range(0, len(payload_bytes), LABEL_LENGTH)]
+        userlist = [lbl.decode('ascii') for lbl in userlist]
         self.payload = userlist
         self.identifier = None  # will be updated in subclass if needed
         self.validate(native_labels=True)
+        self.payload = [strip_null_bytes(lbl) for lbl in self.payload]
         return self
 
 
@@ -603,6 +632,7 @@ class IrcPacketListUsersResp(IrcPacketListResp):
         # identifier is always last 32 bytes of payload
         self.identifier = self.payload[-1]
         self.payload = self.payload[:-1]
+        return self
 
 
 # globally useful functions
