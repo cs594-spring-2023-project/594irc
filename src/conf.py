@@ -25,24 +25,6 @@
 
 from abc import ABC
 
-MAINMENU = """ 
-
-******************************  MENU  **********************************************
-No.  Functionality                                    Command
-************************************************************************************
-0.   To list all the available rooms and clients      :0 
-1.   To list rooms with members                       :1
-2.   To join or create the room if does not exist     :2 room_name 
-3.   To switch room                                   :3 new_room_name 
-4.   To leave current room                            :4 
-5.   To send a direct personal message                :5 receiver_username message
-6.   To send a direct message to current room         :6 message
-7.   To send a direct message to multiple room        :7 message
-8.   To broadcast message to everyone                 :8 message
-9.   To print menu again                              :9
-10.   To exit IRC                                     :10
-
- """
 
 # network config
 IRC_SERVER_PORT = 7734
@@ -217,6 +199,7 @@ class IrcPacketHello:
             if not validate_label(label_to_bytes(self.payload)):
                 raise IRCException(IRC_ERR_ILLEGAL_LABEL)
         elif not validate_label(self.payload):
+            #todo preveet server crashes
             raise ValueError(f"Invalid username: {self.payload}")
 
     def to_bytes(self):
