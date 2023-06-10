@@ -30,11 +30,11 @@ class Server:
     def close_on_err(self, sock, err_code):
         try:
             close_on_err(sock, err_code)
-        except ValueError:
+        except (KeyError, ValueError):
             pass # socket already closed
         try:
             self.sel.unregister(sock)
-        except KeyError:
+        except (KeyError, ValueError):
             pass # socket already unregistered
         self.clean_userlist(sock)
 
@@ -167,8 +167,7 @@ class Server:
         except socket.timeout:
             print(f'connection to {sock.getpeername()} timed out') # ERR
             sock.close()
-        # TODO catch BrokenPipeError
-        except socket.error as e:
+        except (socket.error, BrokenPipeError) as e:
             print(f'KEEPALIVE THREAD: connection to fd {sock} errored: {e}') # ERR
             self.close_on_err(sock, IRC_ERR_UNKNOWN) # should maybe put a timeouterr in rfc
             sock.close()
@@ -208,15 +207,15 @@ class Server:
             print("listening") # DEBUG
             main_sock.listen()
             print("looping") # DEBUG
+            try:
+                keepalive_thread = threading.Thread(target=self.send_keepalives, args=[main_sock])
+                keepalive_thread.start() # TODO handle OS errors gracefully
+            except OSError as e:
+                return self.setup_err(e)
             self.mainloop(main_sock)
 
 
     def mainloop(self, main_sock):
-        try:
-            keepalive_thread = threading.Thread(target=self.send_keepalives, args=[main_sock])
-            keepalive_thread.start() # TODO handle OS errors gracefully
-        except OSError as e:
-            return self.setup_err(e)
         try:
             while True:
                 events = self.sel.select(timeout=TIMEOUT)
