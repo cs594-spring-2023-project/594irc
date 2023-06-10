@@ -167,6 +167,7 @@ class Server:
         except socket.timeout:
             print(f'connection to {sock.getpeername()} timed out') # ERR
             sock.close()
+        # TODO catch BrokenPipeError
         except socket.error as e:
             print(f'KEEPALIVE THREAD: connection to fd {sock} errored: {e}') # ERR
             self.close_on_err(sock, IRC_ERR_UNKNOWN) # should maybe put a timeouterr in rfc

@@ -533,7 +533,9 @@ class IrcPacketListResp(ABC):
 
     def __init__(self, opcode, payload=None, identifier=None):
         self.init_opcode = opcode
-        packet_length = len(payload) * LABEL_LENGTH
+        packet_length = 0
+        if payload is not None:
+            packet_length = len(payload) * LABEL_LENGTH
         if identifier is not None:
             packet_length += LABEL_LENGTH
         self.header = IrcHeader(opcode, packet_length)
