@@ -54,6 +54,12 @@ def leave_room():
     leave_bytes = leave_packet.to_bytes()
     sock.sendall(leave_bytes)
 
+def list_rooms():
+    global sock
+    list_packet = IrcPacketListRooms()
+    list_bytes = list_packet.to_bytes()
+    sock.sendall(list_bytes)
+
 def quit():
     sock.close()
     sock2.close()
@@ -74,7 +80,11 @@ def main(interactive):
         tellmsgtest2 = IrcPacketTellMsg().from_bytes(tellbytes)
         send_hellos()
         sleep(1)
+        list_rooms()
+        sleep(1)
         both_join()
+        sleep(1)
+        list_rooms()
         sleep(1)
         send_msg()
         sleep(1)
