@@ -51,7 +51,7 @@ class Client:
         while True:
             if self.event.is_set():
                 print('Exiting receive_from_server thread')
-                sys.exit(0)
+                break
             else:
                 try:
                     header_bytes = sock.recv(IrcHeader.header_length)
@@ -64,22 +64,20 @@ class Client:
                         pass
 
                     # depending on opcode do stuff.
-                    # 0 - error
                     if header_obj.opcode == IRC_ERR:
-                        print('got error from server')
+                        print('Got error packet from server')
                         try:
                             msg_obj = IrcPacketErr().from_bytes(packet_bytes)
                             print(msg_obj.payload)
+                            self.disconnect_and_close()
+                            break
                         except IRCException as e:
                             print(f'Error parsing error packet from server: {e}')
-                        self.disconnect_and_close()
 
-                    # 1 - keepalive
                     elif header_obj.opcode == IRC_KEEPALIVE:
                         # do nothing
                         pass
 
-                    # 8 - list of all rooms
                     elif header_obj.opcode == IRC_LISTROOMS_RESP:
                         try:
                             msg_obj = IrcPacketListRoomsResp().from_bytes(packet_bytes)
@@ -98,7 +96,6 @@ class Client:
                             self.silent_server_room_request = False
 
 
-                    # 9 - list of all clients
                     elif header_obj.opcode == IRC_LISTUSERS_RESP:
                         try:
                             msg_obj = IrcPacketListUsersResp().from_bytes(packet_bytes)
@@ -119,7 +116,8 @@ class Client:
                         else:
                             # someone joined the server
                             try:
-                                old_room_members = self.room_members.get(msg_obj.identifier) if self.room_members.get(msg_obj.identifier) else set([])
+                                old_room_members = self.room_members.get(msg_obj.identifier) if self.room_members.get(
+                                    msg_obj.identifier) else set([])
                                 new_user = list(set(msg_obj.payload) - old_room_members)
                                 print('new_user')
                                 print(new_user)
@@ -135,7 +133,6 @@ class Client:
                                 pass
 
 
-                    # 10 - message
                     elif header_obj.opcode == IRC_TELLMSG:
                         try:
                             msg_obj = IrcPacketTellMsg().from_bytes(packet_bytes)
@@ -147,11 +144,27 @@ class Client:
                         else:
                             print(f'You in room {msg_obj.target_room} : {msg_obj.payload}')
 
-                except Exception as e:
+                    elif header_obj.opcode == IRC_PRIVMSG:
+                        try:
+                            msg_obj = IrcPacketPrivMsg().from_bytes(packet_bytes)
+                        except IRCException as e:
+                            print(f'Error parsing priv msg packet from server: {e}')
+                            continue
+                        print(f'{msg_obj.sending_user} says: {msg_obj.payload}')
+
+
+                except IRCException as e:
+                    print(f'KEEPALIVE THREAD: error constructing keepalive packet: {e}')
+                    sock.close()
                     self.event.set()
-                    print('DEBUG - receive_from_server error')
-                    self.disconnect_and_close()
-                    sys.exit(-1)
+                    exit()
+
+                except socket.error as e:
+                    print(f'KEEPALIVE THREAD: connection to fd {sock} errored: {e}')  # ERR
+                    print('Closing the socket')
+                    sock.close()
+                    self.event.set()
+                    exit()
 
     def send_keepalives(self):
         sock = self.client_socket
@@ -274,18 +287,25 @@ class Client:
         room = input_room
         message = input_message
         if room is None:
-            room = self.current_room
+            if self.current_room is None:
+                print('Please join a room first to send message')
+                return
+            else:
+                room = self.current_room
         if message is None:
             print(f'Enter message you want to send to {room}')
             message = input()
         try:
             packet = IrcPacketSendMsg(payload=message, target_room=room)
+            self.client_socket.sendall(packet.to_bytes());
         except IRCException as e:
             print(f'Error constructing sendmsg packet: {e}')
             return
-        self.client_socket.sendall(packet.to_bytes());
 
     def send_msg_to_multiple_rooms(self):
+        if len(self.clients_room_list) == 0:
+            print('Please join a room to send message')
+            return
         for index, element in enumerate(self.clients_room_list):
             print(f"[{index + 1}] {element}")
         input_str = input("Enter the indices separated by commas: ")
@@ -302,6 +322,17 @@ class Client:
         except ValueError as e:
             print(f"Invalid input : '{index}'")
 
+    def send_priv_msg(self):
+        target_user = input('Who do you want to send message? > ')
+        message = input(f'Enter message you want to send to {target_user} > ')
+        try:
+            packet = IrcPacketSendPrivMsg(payload=message, target_user=target_user)
+            self.client_socket.sendall(packet.to_bytes());
+            print('Sent.')
+        except IRCException as e:
+            print(f'Error constructing send priv msg packet: {e}')
+            return
+
     def create_connection(self):
         self.client_name = input('Input your name > ')
         server_address = ('', IRC_SERVER_PORT)
@@ -311,14 +342,12 @@ class Client:
             join_bytes = join_packet.to_bytes()
         except IRCException as e:
             print(f'Error constructing hello packet: {e}')
-            #self.event.set()
             return self.create_connection()
         try:
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.client_socket.connect(server_address)
             self.client_socket.sendall(join_bytes)
         except ConnectionRefusedError as e:
-            # todo check for actual successful connection before printing manual
             print("Connection reused by server. Either can't find server, or server is not online")
             self.event.set()
             exit(-1)
@@ -334,8 +363,7 @@ class Client:
             self.receiving_thread = threading.Thread(target=self.receive_from_server)
             self.receiving_thread.start()
         except OSError as e:
-            print('receiving thread error')
-            print(e)
+            exit()
 
     # keepalive
     def start_keep_alive_thread(self):
@@ -343,37 +371,45 @@ class Client:
             self.keep_alive_thread = threading.Thread(target=self.send_keepalives)
             self.keep_alive_thread.start()
         except OSError as e:
-            print('Keep alive error')
-            print(e)
+            exit()
 
     def disconnect_and_close(self):
         self.event.set()
         print('Exiting...')
-        try:
-            if self.receiving_thread is not None:
-                self.receiving_thread.join()
-            if self.keep_alive_thread is not None:
-                self.keep_alive_thread.join()
-            print('Closing connection to server')
-            if self.client_socket is not None:
-                self.client_socket.close()
-        except (OSError, BrokenPipeError, RuntimeError) as e:
-            print(f'Error closing socket: {e}')
-            exit(-1)
-
-
+        sys.exit()
+        # try:
+        #     if self.keep_alive_thread is not None:
+        #         try:
+        #             self.keep_alive_thread.join()
+        #         except RuntimeError as e:
+        #             pass
+        #     if self.receiving_thread is not None:
+        #         try:
+        #             self.receiving_thread.join()
+        #         except RuntimeError as e:
+        #             exit()
+        #     if self.client_socket is not None:
+        #         print('Closing connection to server')
+        #         self.client_socket.close()
+        #     sys.exit()
+        # except (OSError, BrokenPipeError, RuntimeError) as e:
+        #     print(f'Error closing socket: {e}')
+        #     sys.exit()
 
     def main_loop(self):
+        # get manually list of all server rooms for in case client presses #3
+        self.list_all_rooms(is_silently=True)
+
         while True:
             if self.event.is_set():
-                self.disconnect_and_close()
+                print('Exiting main loop')
                 break
             else:
                 try:
-                    # get manually list of all server rooms for in case client presses #3
-                    self.list_all_rooms(is_silently=True)
+
                     user_input = input('GIVE INPUT > ')
                     user_input = user_input.strip()
+
                     # 0 list all the available rooms ✅
                     if '#0' in user_input:
                         self.list_all_rooms(False)
@@ -384,56 +420,47 @@ class Client:
                         self.list_all_clients()
                         sleep(0.3)
 
-
                     # 2 join or create the room if it does not exist ✅
                     elif '#2' in user_input:
                         self.join_create_room()
                         sleep(0.3)
-
 
                     # 3 join multiple rooms at once ✅
                     elif '#3' in user_input:
                         self.join_multiple_room()
                         sleep(0.3)
 
-
                     # 4 switch room ✅
                     elif '#4' in user_input:
                         self.switch_room()
                         sleep(0.3)
-
 
                     # 5 leave current room ✅
                     elif '#5' in user_input:
                         self.leave_room()
                         sleep(0.3)
 
-
                     # 6 send a direct message to current room ✅
                     elif '#6' in user_input:
                         self.send_msg_to_room()
                         sleep(0.3)
 
-
-                    # 7 send a direct message to multiple room
+                    # 7 send a direct message to multiple room ✅
                     elif '#7' in user_input:
                         self.send_msg_to_multiple_rooms()
                         sleep(0.3)
 
-
                     # 8 send a direct message to other user
                     elif '#8' in user_input:
-                        print("this is the command")
+                        self.send_priv_msg()
                         sleep(0.3)
 
-
-                    # 9 print the manual
+                    # 9 print the manual ✅
                     elif '#9' in user_input:
                         print(CLIENT_MANUAL)
                         sleep(0.3)
 
-
-                    # 10 close the connection
+                    # 10 close the connection ✅
                     elif 'exit' in user_input:
                         self.disconnect_and_close()
                         exit(0)
@@ -443,7 +470,6 @@ class Client:
                 except Exception as e:
                     print(e)
                     pass
-
 
     def main(self):
         try:
