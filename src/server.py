@@ -33,10 +33,7 @@ class Server:
             for user in self.users:
                 self.close_and_clean(user.sock, err_code)
             return
-        try:
-            close_on_err(sock, err_code)
-        except (socket.socket.error, KeyError, ValueError, OSError):
-            pass # socket already closed
+        close_on_err(sock, err_code)
         try:
             self.sel.unregister(sock)
         except (KeyError, ValueError, OSError):
