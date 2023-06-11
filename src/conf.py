@@ -620,13 +620,13 @@ def close_on_err(sock, err_code, err_msg=None):
     '''
     if err_msg is not None:
         print(err_msg)
-    if sock is not None and sock.fileno() != -1:
-        try:
+    try:
+        if sock is not None and sock.fileno() != -1:
             print(f'closing {sock.getpeername()} due to error {err_code}')
             sock.send(IrcPacketErr(err_code).to_bytes())
             sock.close()
-        except (socket.socket.error, KeyError, ValueError, OSError):
-            pass # socket already closed
+    except (socket.error, KeyError, ValueError, OSError):
+        pass # socket already closed
 
 
 def validate_string(string):
