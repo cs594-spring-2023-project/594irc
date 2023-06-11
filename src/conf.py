@@ -56,6 +56,9 @@ class IRCException(Exception):
         self.err_code = code
         self.err_msg = msg
 
+    def __str__(self):
+        return f'err code {self.err_code}: {self.err_msg}'
+
 # packet classes
 # could be more DRY and better organized with different inheritance
 # but this is simpler for now
