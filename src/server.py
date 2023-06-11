@@ -71,9 +71,9 @@ class Server:
         # add user to room
         this_room.append(user)
         # send list of users to all users in room
-        for other_user in [u for u in self.rooms[room_name] if u.username != user.username]:
+        for other_user in [u for u in self.rooms[room_name] if u != user]:
             try:
-                self.send_user_list(user, room_name)
+                self.send_user_list(other_user, room_name)
             except IRCException as e:
                 self.close_and_clean(user.sock, e.err_code)
 
@@ -143,7 +143,6 @@ class Server:
                     self.close_and_clean(user.sock, IRC_ERR)
         else: # behavior not defined in RFC!
             print(f'no room named "{msg.target_room}" exists... silently ignoring send for now') # DEBUG
-
 
     def react_to_client_err(self, user, err_msg):
         print(f'closed on by {user.sock.getpeername()} due to error {err_msg.payload}') # ERR
@@ -229,7 +228,6 @@ class Server:
             except OSError as e:
                 return self.setup_err(e)
             self.mainloop(main_sock)
-
 
     def mainloop(self, main_sock):
         try:

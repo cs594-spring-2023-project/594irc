@@ -36,9 +36,12 @@ class Client:
         self.client_name = None
         self.terminate_flag = False
         self.current_room = None
+        self.silent_room_member_request = False
+        # self.current_room_members = []
+        self.room_members = dict() # client joined room and its members
         self.client_socket = None
-        self.room_list = []
-        self.all_server_rooms = []
+        self.clients_room_list = []
+        self.server_room_list = []
 
     def receive_from_server(self):
         sock = self.client_socket
@@ -50,7 +53,8 @@ class Client:
                 packet_bytes = header_bytes + payload_bytes
 
                 if not header_obj.opcode == 1:
-                    print(f'DEBUG {header_obj.opcode}')
+                    # print(f'DEBUG {header_obj.opcode}')
+                    pass
 
                 # depending on opcode do stuff.
                 # 0 - error
@@ -68,10 +72,10 @@ class Client:
                 # 8 - list of all rooms
                 elif header_obj.opcode == IRC_LISTROOMS_RESP:
                     msg_obj = IrcPacketListRoomsResp().from_bytes(packet_bytes)
-                    self.all_server_rooms = msg_obj.payload
-                    if len(self.all_server_rooms) != 0:
+                    self.server_room_list = msg_obj.payload
+                    if len(self.server_room_list) != 0:
                         print('List of all rooms on server:')
-                        for index, element in enumerate(self.all_server_rooms):
+                        for index, element in enumerate(self.server_room_list):
                             print(f"{element}")
                     else:
                         print('No rooms created on server.')
@@ -80,12 +84,25 @@ class Client:
                 # 9 - list of all clients
                 elif header_obj.opcode == IRC_LISTUSERS_RESP:
                     msg_obj = IrcPacketListUsersResp().from_bytes(packet_bytes)
-                    print(msg_obj.payload)
-                    if len(msg_obj.payload) != 0:
-                        print(f'List of users in {self.current_room}:')
-                        for index, element in enumerate(msg_obj.payload):
-                            print(f"{element}")
+                    # print(f'DEBUG IRC_LISTUSERS_RESP {msg_obj.payload}')
+                    # print(f'DEBUG msg_obj.identifier {msg_obj.identifier}')
 
+                    # print(f'DEBUG silent_room_member_request {self.silent_room_member_request}')
+                    if self.silent_room_member_request == True:
+                        # client requested the list of current
+                        # self.current_room_members = msg_obj.payload
+                        self.room_members.update({msg_obj.identifier: msg_obj.payload})
+                        self.silent_room_member_request = False
+                        if self.client_name in msg_obj.payload:
+                            print(f'Joined room {msg_obj.identifier}.')
+                    else:
+                        # someone joined the server
+                        # check if current room and coming room is same
+                        # if not same
+                        new_user = set(msg_obj.payload) - set(self.room_members[msg_obj.identifier])
+                        # self.current_room_members = msg_obj.payload
+                        self.room_members.update({msg_obj.identifier: msg_obj.payload})
+                        print(f'{new_user.pop()} Joined {msg_obj.identifier}')
 
 
                 # 10 - message
@@ -128,45 +145,51 @@ class Client:
             packet = IrcPacketListUsers(self.current_room)
             self.client_socket.sendall(packet.to_bytes())
 
+    def request_all_room_clients_silently(self):
+        self.silent_room_member_request = True
+        packet = IrcPacketListUsers(self.current_room)
+        self.client_socket.sendall(packet.to_bytes())
+
     def join_create_room(self, input_room=None):
         room_name = input_room
         if room_name is None:
             room_name = input('Enter room name > ')
-        print(room_name)
         packet = IrcPacketJoinRoom(room_name=room_name)
         self.client_socket.sendall(packet.to_bytes())
         self.current_room = room_name
-        if room_name not in self.room_list:
-            self.room_list.append(room_name)
+        self.request_all_room_clients_silently()
+        if room_name not in self.clients_room_list:
+            self.clients_room_list.append(room_name)
 
     def join_multiple_room(self):
         # get all room list from server, present it with numbers to user and ask to enter number of room to join
-        for index, element in enumerate(self.all_server_rooms):
-            print(f"[{index+1}] {element}")
+        for index, element in enumerate(self.server_room_list):
+            print(f"[{index + 1}] {element}")
         input_str = input("Enter the indices separated by commas: ")
         indices = input_str.split(",")
         for index in indices:
-            index = int(index.strip())-1
-            if 0 <= index < len(self.all_server_rooms):
-                print(f"Joining {self.all_server_rooms[index]}")
-                self.join_create_room(input_room=self.all_server_rooms[index])
+            index = int(index.strip()) - 1
+            if 0 <= index < len(self.server_room_list):
+                print(f"Joining {self.server_room_list[index]}")
+                self.join_create_room(input_room=self.server_room_list[index])
             else:
                 print(f"Invalid index: [{index}]")
 
     def switch_room(self):
-        print(self.room_list)
+        print(self.clients_room_list)
         room_name = input('Enter room name you want to switch > ')
-        if room_name not in self.room_list:
+        if room_name not in self.clients_room_list:
             print('You have not joined this room yet. please join this room first')
-        elif room_name in self.room_list:
+        elif room_name in self.clients_room_list:
             self.current_room = room_name
+            # self.request_all_room_clients_silently()
 
     def leave_room(self):
         if self.current_room is not None:
             print(f'Removing yourself from {self.current_room}')
             packet = IrcPacketLeaveRoom(room_name=self.current_room)
             self.client_socket.sendall(packet.to_bytes());
-            self.room_list.remove(self.current_room)
+            self.clients_room_list.remove(self.current_room)
             self.current_room = None
         else:
             print('You are not in any room. Switch to or join room first')
@@ -183,16 +206,16 @@ class Client:
         self.client_socket.sendall(packet.to_bytes());
 
     def send_msg_to_multiple_rooms(self):
-        for index, element in enumerate(self.room_list):
-            print(f"[{index+1}] {element}")
+        for index, element in enumerate(self.clients_room_list):
+            print(f"[{index + 1}] {element}")
         input_str = input("Enter the indices separated by commas: ")
         input_msg = input('Enter message to send')
         indices = input_str.split(",")
         for index in indices:
-            index = int(index.strip())-1
-            if 0 <= index < len(self.room_list):
-                print(f"Sending message to {self.room_list[index]}")
-                self.send_msg_to_room(input_room=self.room_list[index], input_message=input_msg)
+            index = int(index.strip()) - 1
+            if 0 <= index < len(self.clients_room_list):
+                print(f"Sending message to {self.clients_room_list[index]}")
+                self.send_msg_to_room(input_room=self.clients_room_list[index], input_message=input_msg)
             else:
                 print(f"Invalid index: [{index}]")
         pass
@@ -244,18 +267,22 @@ class Client:
                 if '#0' in user_input:
                     self.list_all_rooms()
 
+
                 # 1 list all members of current room ✅
                 # check if the current room is not none
                 elif '#1' in user_input:
                     self.list_all_clients()
 
+
                 # 2 join or create the room if it does not exist ✅
                 elif '#2' in user_input:
                     self.join_create_room()
 
+
                 # 3 join multiple rooms at once ✅
                 elif '#3' in user_input:
                     self.join_multiple_room()
+
 
                 # 4 switch room ✅
                 elif '#4' in user_input:
@@ -276,18 +303,21 @@ class Client:
                 elif '#7' in user_input:
                     self.send_msg_to_multiple_rooms()
 
+
                 # 8 send a direct message to other user
-                # todo ask username and then message. both on separate line
                 elif '#8' in user_input:
                     print("this is the command")
+
 
                 # 9 print the manual
                 elif '#9' in user_input:
                     print(CLIENT_MANUAL)
 
+
                 # 10 close the connection
                 else:
                     pass
+
 
             # while exception
             except KeyboardInterrupt as kbi:
