@@ -662,11 +662,15 @@ def validate_label(label):
     '   label: label to check
     '   returns: True if valid, False otherwise
     '''
+    space = ' '
+    if type(label) is bytes:
+        space = 32
     if len(label) > 32 or len(label) < 1:
         return False
     if len(label) < 32 and label.find('\0') == -1:
         return False
-    if label[0] == ' ' or label[-1] == ' ':
+    label = strip_null_bytes(label)
+    if label[0] == space or label[-1] == space:
         return False
     if not validate_string(label):
         return False
