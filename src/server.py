@@ -32,13 +32,14 @@ class Server:
         if sock is None: # disconnect all users
             for user in self.users:
                 self.close_and_clean(user.sock, err_code)
+            return
         try:
             close_on_err(sock, err_code)
-        except (KeyError, ValueError):
+        except (socket.socket.error, KeyError, ValueError, OSError):
             pass # socket already closed
         try:
             self.sel.unregister(sock)
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, OSError):
             pass # socket already unregistered
         self.clean_userlist(sock)
 
@@ -46,18 +47,21 @@ class Server:
         ''' accepts a new user and adds them to the users list '''
         try:
             client_sock = None
+            username = ''
             client_sock, client_tcpip_tuple = sock.accept()
             client_sock.settimeout(TIMEOUT)
+            new_user = User(username, client_sock)
             received_hello_bytes = client_sock.recv(IrcPacketHello.packet_length)
             username = IrcPacketHello().from_bytes(received_hello_bytes).payload
+            new_user.username = username
             if username in [user.username for user in self.users]:
                 self.close_and_clean(client_sock, IRC_ERR_NAME_EXISTS)
                 return
-            self.users.append(new_user := User(username, client_sock))
+            self.users.append(new_user)
             self.sel.register(client_sock, selectors.EVENT_READ)
             print(f'added {username} at {client_tcpip_tuple} (fd {client_sock.fileno()}) to server') # DEBUG
         except IRCException as e:
-            self.close_and_clean(new_user, e.err_code)
+            self.close_and_clean(client_sock, e.err_code)
         except ValueError as e:
             print('client connection at addr/port already exists') # ERR
             self.close_and_clean(client_sock, IRC_ERR_UNKNOWN)
