@@ -1,6 +1,6 @@
 ''' server.py ~ Amelia Miner
-'   Implements the server side of the chatroom as specified in RFC.pdf under /docs.
-'   ...
+'   Implements the server side of the chatroom as specified in RFC.pdf
+'   under /docs.
 '''
 
 import selectors

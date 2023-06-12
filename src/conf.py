@@ -1,13 +1,16 @@
 ''' conf.py ~ Amelia Miner
-'   Contains common structures & global variables/config for both server.py and client.py.
-'   as well as packet classes for now.
-'   packet classes all have a to_bytes() and from_bytes() method for serialization into a socket and
-'   deserialization out of a socket respectively.
-'   packet classes also have a validate() method for validating the packet's fields.
-'   this method should be called initially on to_bytes and toward the end of from_bytes to catch any
-'   protocol violations.
-'   validate raises an IRCException on protocol violations, which generally should lead to the detecting
-'   party informing the other party of the error and closing the connection.
+'   Contains common structures & global variables/config for both server.py
+'   and client.py as well as packet classes for now.
+'   Packet classes all have a to_bytes() and from_bytes() method for
+'   serialization into a socket and deserialization out of a socket
+'   respectively.
+'   Packet classes also have a validate() method for validating the packet's
+'   fields.
+'   This method should be called initially on to_bytes and toward the end of
+'   from_bytes to catch any protocol violations.
+'   validate raises an IRCException on protocol violations, which generally
+'   should lead to the detecting party informing the other party of the
+'   error and closing the connection.
 '''
 
 from abc import ABC
