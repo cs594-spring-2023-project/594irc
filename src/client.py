@@ -116,7 +116,7 @@ class Client:
                         else:
                             # someone joined the server
                             try:
-                                old_room_members = self.room_members.get(msg_obj.identifier) if self.room_members.get(
+                                old_room_members = set(self.room_members.get(msg_obj.identifier)) if self.room_members.get(
                                     msg_obj.identifier) else set([])
                                 new_user = list(set(msg_obj.payload) - old_room_members)
                                 print('new_user')
