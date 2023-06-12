@@ -83,7 +83,7 @@ class Server:
         # add user to room
         this_room.append(user)
         # send list of users to all users in room
-        for other_user in [u for u in self.rooms[room_name] if u != user]:
+        for other_user in self.rooms[room_name]:
             try:
                 self.send_user_list(other_user, room_name)
             except IRCException as e:
