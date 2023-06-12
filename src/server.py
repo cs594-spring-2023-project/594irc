@@ -292,13 +292,11 @@ class Server:
                 return  # not sure why this happens...
                 # if there's no inbound traffic why does the FD get selected?
             header_obj = IrcHeader().from_bytes(header_bytes)
-            print(header_obj.opcode)
             payload_bytes = this_user.sock.recv(header_obj.length)
             packet_bytes = header_bytes + payload_bytes
             msg_obj = None
             if header_obj.opcode == IRC_KEEPALIVE:
-                pass
-                # print(f'received keepalive from {this_user.sock.getpeername()}') # DEBUG
+                print(f'received keepalive from {this_user.sock.getpeername()}') # DEBUG
                 # RFC does not specify that we have to do anything here
                 # only that we MUST send keepalives and SHOULD receive them
             elif header_obj.opcode == IRC_SENDMSG:
