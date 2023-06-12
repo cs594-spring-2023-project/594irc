@@ -123,22 +123,22 @@ class Server:
             self.close_and_clean(user.sock, e.err_code)
 
     def send_msg(self, user, msg):
-        print(f'relaying "{msg.payload}" from {user.username} to {msg.target_room}')  # DEBUG
-        if msg.target_room in self.rooms.keys():
+        print(f'relaying "{msg.payload}" from {user.username} to {msg.target_label}')  # DEBUG
+        if msg.target_label in self.rooms.keys():
             try:
                 tell_msg = IrcPacketTellMsg(
                     payload=msg.payload,
-                    target_room=msg.target_room,
+                    target_label=msg.target_label,
                     sending_user=user.username
                 )
                 tell_msg_bytes = tell_msg.to_bytes()
             except IRCException as e:
                 print(f'ERROR: encountered protocol error while sending msg to {user.username}')
                 self.close_and_clean(user.sock, e.err_code)
-            for user in self.rooms[msg.target_room]:
+            for user in self.rooms[msg.target_label]:
                 try:
                     user.sock.sendall(tell_msg_bytes)
-                    print(f'told "{msg.payload}" to {user.username} in {msg.target_room}')  # DEBUG
+                    print(f'told "{msg.payload}" to {user.username} in {msg.target_label}')  # DEBUG
                 except socket.timeout:
                     print(f'connection to {user.sock.getpeername()} timed out while telling msg')  # ERR
                     self.close_and_clean(user.sock, IRC_ERR)
@@ -146,33 +146,33 @@ class Server:
                     print(f'connection to {user.sock.getpeername()} errored while telling msg')  # ERR
                     self.close_and_clean(user.sock, IRC_ERR)
         else:  # behavior not defined in RFC!
-            print(f'no room named "{msg.target_room}" exists... silently ignoring send for now')  # DEBUG
+            print(f'no room named "{msg.target_label}" exists... silently ignoring send for now')  # DEBUG
 
     def send_priv_msg(self, user, msg):
-        print(f'relaying "{msg.payload}" from {user.username} to {msg.target_user}')  # DEBUG
-        if msg.target_user in self.users:
+        print(f'relaying "{msg.payload}" from {user.username} to {msg.target_label}')  # DEBUG
+        if msg.target_label in [u.username for u in self.users]:
             try:
-                tell_msg = IrcPacketPrivMsg(
+                target_user = [u for u in self.users if u.username == msg.target_label][0]
+                tell_msg = IrcPacketTellPrivMsg(
                     payload=msg.payload,
-                    target_user=msg.target_user,
+                    target_label=msg.target_label,
                     sending_user=user.username
                 )
                 tell_msg_bytes = tell_msg.to_bytes()
             except IRCException as e:
-                print(f'ERROR: encountered protocol error while sending msg to {user.username}')
+                print(f'ERROR: encountered protocol error while telling msg to {msg.target_label}')
                 self.close_and_clean(user.sock, e.err_code)
-            for user in [msg.target_user]:
-                try:
-                    user.sock.sendall(tell_msg_bytes)
-                    print(f'told "{msg.payload}" to {user.username} in {msg.target_user}')  # DEBUG
-                except socket.timeout:
-                    print(f'connection to {user.sock.getpeername()} timed out while telling msg')  # ERR
-                    self.close_and_clean(user.sock, IRC_ERR)
-                except OSError:
-                    print(f'connection to {user.sock.getpeername()} errored while telling msg')  # ERR
-                    self.close_and_clean(user.sock, IRC_ERR)
+            try:
+                target_user.sock.sendall(tell_msg_bytes)
+                print(f'told "{msg.payload}" to {msg.target_label}')  # DEBUG
+            except socket.timeout:
+                print(f'connection to {user.sock.getpeername()} timed out while telling msg')  # ERR
+                self.close_and_clean(user.sock, IRC_ERR)
+            except OSError:
+                print(f'connection to {user.sock.getpeername()} errored while telling msg')  # ERR
+                self.close_and_clean(user.sock, IRC_ERR)
         else:  # behavior not defined in RFC!
-            print(f'No user named "{msg.target_user}" exists... silently ignoring send for now')  # DEBUG
+            print(f'No user named "{msg.target_label}" exists... silently ignoring send for now')  # DEBUG
 
     def react_to_client_err(self, user, err_msg):
         print(f'closed on by {user.sock.getpeername()} due to error {err_msg.payload}')  # ERR
@@ -235,7 +235,7 @@ class Server:
         if retry == 'y':
             return self.main()
         elif retry == 'n':
-            exit(1)
+            exit(0)
         else:
             print('invalid input')
             return self.setup_err(e)
@@ -331,7 +331,7 @@ class Server:
                       {header_obj.opcode} from {this_user.sock.getpeername()};\nnot yet implemented!')  # DEBUG
         except IRCException as e:
             print('ERROR: receive_from_client() caught an IRCException - malformed client packet?')  # ERR
-            self.close_and_clean(this_user)
+            self.close_and_clean(this_user.sock)
         except OSError as e:  # tried to read from a dead connection
             if this_user.sock.fileno() != -1:
                 print(f'Lost connection to {this_user.sock}; removing from server')  # DEBUG

@@ -140,13 +140,13 @@ class Client:
                             print(f'Error parsing tellmsg packet from server: {e}')
                             continue
                         if msg_obj.sending_user != self.client_name:
-                            print(f'{msg_obj.sending_user} in room {msg_obj.target_room} : {msg_obj.payload}')
+                            print(f'{msg_obj.sending_user} in room {msg_obj.target_label} : {msg_obj.payload}')
                         else:
-                            print(f'You in room {msg_obj.target_room} : {msg_obj.payload}')
+                            print(f'You in room {msg_obj.target_label} : {msg_obj.payload}')
 
-                    elif header_obj.opcode == IRC_PRIVMSG:
+                    elif header_obj.opcode == IRC_TELLPRIVMSG:
                         try:
-                            msg_obj = IrcPacketPrivMsg().from_bytes(packet_bytes)
+                            msg_obj = IrcPacketTellPrivMsg().from_bytes(packet_bytes)
                         except IRCException as e:
                             print(f'Error parsing priv msg packet from server: {e}')
                             continue
@@ -296,7 +296,7 @@ class Client:
             print(f'Enter message you want to send to {room}')
             message = input()
         try:
-            packet = IrcPacketSendMsg(payload=message, target_room=room)
+            packet = IrcPacketSendMsg(payload=message, target_label=room)
             self.client_socket.sendall(packet.to_bytes());
         except IRCException as e:
             print(f'Error constructing sendmsg packet: {e}')
@@ -323,11 +323,11 @@ class Client:
             print(f"Invalid input : '{index}'")
 
     def send_priv_msg(self):
-        target_user = input('Who do you want to send message? > ')
-        message = input(f'Enter message you want to send to {target_user} > ')
+        target_label = input('Who do you want to send message? > ')
+        message = input(f'Enter message you want to send to {target_label} > ')
         try:
-            packet = IrcPacketSendPrivMsg(payload=message, target_user=target_user)
-            self.client_socket.sendall(packet.to_bytes());
+            packet = IrcPacketSendPrivMsg(payload=message, sending_user=self.client_name, target_label=target_label)
+            self.client_socket.sendall(packet.to_bytes())
             print('Sent.')
         except IRCException as e:
             print(f'Error constructing send priv msg packet: {e}')
