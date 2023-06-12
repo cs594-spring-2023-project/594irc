@@ -22,16 +22,20 @@ class User:
 # just access room lists via self.rooms[room_name]
 
 class Server:
-    ''' represents the server with users, rooms, and a selector '''
+    ''' represents the server with users, rooms, a selector,
+    '   and a flag that tells child processes to terminate
+    '''
 
     def __init__(self):
-        '''  initializes selector, rooms, and users lists '''
         self.sel = selectors.DefaultSelector()
         self.users = []
         self.rooms = {}
         self.terminate_flag = False
 
     def close_and_clean(self, sock=None, err_code=IRC_ERR_UNKNOWN):
+        ''' closes a socket and cleans up the userlist and selector 
+        '   if sock is None, closes all sockets and cleans up all users
+        '''
         if sock is None:  # disconnect all users
             for user in self.users:
                 self.close_and_clean(user.sock, err_code)
@@ -51,15 +55,16 @@ class Server:
             client_sock, client_tcpip_tuple = sock.accept()
             client_sock.settimeout(TIMEOUT)
             new_user = User(username, client_sock)
-            received_hello_bytes = client_sock.recv(IrcPacketHello.packet_length)
-            username = IrcPacketHello().from_bytes(received_hello_bytes).payload
+            rcvd_hello_bytes = client_sock.recv(IrcPacketHello.packet_length)
+            username = IrcPacketHello().from_bytes(rcvd_hello_bytes).payload
             new_user.username = username
             if username in [user.username for user in self.users]:
                 self.close_and_clean(client_sock, IRC_ERR_NAME_EXISTS)
                 return
             self.users.append(new_user)
             self.sel.register(client_sock, selectors.EVENT_READ)
-            print(f'added {username} at {client_tcpip_tuple} (fd {client_sock.fileno()}) to server')  # DEBUG
+            print(f'added {username} at {client_tcpip_tuple} ',
+                  f'(fd {client_sock.fileno()}) to server')  # DEBUG
         except IRCException as e:
             self.close_and_clean(client_sock, e.err_code)
         except ValueError as e:
@@ -67,6 +72,9 @@ class Server:
             self.close_and_clean(client_sock, IRC_ERR_UNKNOWN)
 
     def add_user_to_room(self, user, join_msg):
+        ''' adds a user to a room and sends the user list to all users in the
+        '   room
+        '''
         # create room if it doesn't exist
         room_name = join_msg.payload
         if room_name not in self.rooms.keys():
@@ -82,6 +90,9 @@ class Server:
                 self.close_and_clean(user.sock, e.err_code)
 
     def user_requests_user_list(self, user, list_users_msg):
+        ''' receives a request for a list of users in a room 
+        '   and sends it to the user
+        '''
         room_name = list_users_msg.payload
         bad_room_name = False
         if room_name not in self.rooms.keys():
@@ -92,6 +103,7 @@ class Server:
             self.close_and_clean(user.sock, e.err_code)
 
     def send_user_list(self, user, room_name, bad_room_name=False):
+        ''' sends a list of users in a room to a user '''
         if bad_room_name:
             payload = []
         else:
@@ -105,12 +117,15 @@ class Server:
             list_users_packet_bytes = list_users_packet.to_bytes()
             user.sock.sendall(list_users_packet_bytes)
         except IRCException as e:
-            print(f'ERROR: encountered protocol error while sending user list to {user.username}', e)
+            print(f'ERROR: encountered protocol error while \
+                      sending user list to {user.username}', e)
             self.close_and_clean(user.sock, e.err_code)
         except socket.timeout:
-            print(f'connection to {user.sock} timed out while sending user list')  # ERR
+            print(f'connection to {user.sock} timed out while \
+                      sending user list')  # ERR
         except OSError:
-            print(f'connection to {user.sock} errored while sending user list')  # ERR
+            print(f'connection to {user.sock} errored while \
+                      sending user list')  # ERR
 
     def send_room_list(self, user):
         try:
@@ -123,7 +138,8 @@ class Server:
             self.close_and_clean(user.sock, e.err_code)
 
     def send_msg(self, user, msg):
-        print(f'relaying "{msg.payload}" from {user.username} to {msg.target_label}')  # DEBUG
+        print(f'relaying "{msg.payload}" from {user.username} \
+                      to {msg.target_label}')  # DEBUG
         if msg.target_label in self.rooms.keys():
             try:
                 tell_msg = IrcPacketTellMsg(
@@ -133,20 +149,25 @@ class Server:
                 )
                 tell_msg_bytes = tell_msg.to_bytes()
             except IRCException as e:
-                print(f'ERROR: encountered protocol error while sending msg to {user.username}')
+                print(f'ERROR: encountered protocol error while sending \
+                      msg to {user.username}')
                 self.close_and_clean(user.sock, e.err_code)
             for user in self.rooms[msg.target_label]:
                 try:
                     user.sock.sendall(tell_msg_bytes)
-                    print(f'told "{msg.payload}" to {user.username} in {msg.target_label}')  # DEBUG
+                    print(f'told "{msg.payload}" to {user.username} in \
+                      {msg.target_label}')  # DEBUG
                 except socket.timeout:
-                    print(f'connection to {user.sock.getpeername()} timed out while telling msg')  # ERR
+                    print(f'connection to {user.sock.getpeername()} timed out \
+                      while telling msg')  # ERR
                     self.close_and_clean(user.sock, IRC_ERR)
                 except OSError:
-                    print(f'connection to {user.sock.getpeername()} errored while telling msg')  # ERR
+                    print(f'connection to {user.sock.getpeername()} errored \
+                      while telling msg')  # ERR
                     self.close_and_clean(user.sock, IRC_ERR)
         else:  # behavior not defined in RFC!
-            print(f'no room named "{msg.target_label}" exists... silently ignoring send for now')  # DEBUG
+            print(f'no room named "{msg.target_label}" exists... \
+                      silently ignoring send for now')  # DEBUG
 
     def send_priv_msg(self, user, msg):
         print(f'relaying "{msg.payload}" from {user.username} to {msg.target_label}')  # DEBUG
@@ -160,22 +181,27 @@ class Server:
                 )
                 tell_msg_bytes = tell_msg.to_bytes()
             except IRCException as e:
-                print(f'ERROR: encountered protocol error while telling msg to {msg.target_label}')
+                print(f'ERROR: encountered protocol error while \
+                      telling msg to {msg.target_label}')
                 self.close_and_clean(user.sock, e.err_code)
             try:
                 target_user.sock.sendall(tell_msg_bytes)
                 print(f'told "{msg.payload}" to {msg.target_label}')  # DEBUG
             except socket.timeout:
-                print(f'connection to {user.sock.getpeername()} timed out while telling msg')  # ERR
+                print(f'connection to {user.sock.getpeername()} \
+                      timed out while telling msg')  # ERR
                 self.close_and_clean(user.sock, IRC_ERR)
             except OSError:
-                print(f'connection to {user.sock.getpeername()} errored while telling msg')  # ERR
+                print(f'connection to {user.sock.getpeername()} \
+                      errored while telling msg')  # ERR
                 self.close_and_clean(user.sock, IRC_ERR)
         else:  # behavior not defined in RFC!
-            print(f'No user named "{msg.target_label}" exists... silently ignoring send for now')  # DEBUG
+            print(f'No user named "{msg.target_label}" exists... \
+                      silently ignoring send for now')  # DEBUG
 
     def react_to_client_err(self, user, err_msg):
-        print(f'closed on by {user.sock.getpeername()} due to error {err_msg.payload}')  # ERR
+        print(f'closed on by {user.sock.getpeername()} \
+                      due to error {err_msg.payload}')  # ERR
         print(f'removing {user.username} from server')  # ERR
         self.close_and_clean(user.sock, err_msg.payload)
 
@@ -189,32 +215,37 @@ class Server:
                 break
         if bad_user in self.users:
             self.users.remove(bad_user)
-        # self.users = [user for user in self.users if user.sock != bad_sock and user.sock.fileno() != -1]
+        # self.users = [user for user in self.users \
+        # if user.sock != bad_sock and user.sock.fileno() != -1]
         if bad_user is not None:
             self.remove_user_from_room(bad_user)
 
     def remove_user_from_room(self, user, room_to_leave=None):
-        ''' if room_to_leave is None, removes user from all rooms '''
+        ''' if room_to_leave is None, removes user from all rooms
+        '   also removes dead connections
+        '''
         bad_sock = user.sock
         for room in self.rooms:
             if room is not None and room != room_to_leave:
                 continue
-            print(f'removing {user.username} from {room}')  # also removes dead connections # DEBUG
-            self.rooms[room] = [u for u in self.rooms[room] if u.sock != bad_sock and u.sock.fileno() != -1]
+            print(f'removing {user.username} from {room}')  # DEBUG
+            self.rooms[room] = [u for u in self.rooms[room] if \
+                                u.sock != bad_sock and u.sock.fileno() != -1]
 
     def send_keepalive(self, sock):
         ''' sends a keepalive packet to the given socket '''
         try:
             sock.sendall(IrcPacketKeepalive().to_bytes())
         except IRCException as e:
-            print(f'KEEPALIVE THREAD: encountered protocol error while sending keepalive to {sock}')
+            print(f'KEEPALIVE THREAD: encountered protocol error \
+                  while sending keepalive to {sock}')
             self.close_and_clean(sock, e.err_code)
         except socket.timeout:
             print(f'connection to {sock.getpeername()} timed out')  # ERR
             sock.close()
         except (socket.error, BrokenPipeError, OSError) as e:
             print(f'KEEPALIVE THREAD: connection to fd {sock} errored: {e}')  # ERR
-            self.close_and_clean(sock, IRC_ERR_UNKNOWN)  # should maybe put a timeouterr in rfc
+            self.close_and_clean(sock, IRC_ERR_UNKNOWN)  # timeout err?
             sock.close()
 
     def send_keepalives(self, main_sock):
@@ -224,7 +255,8 @@ class Server:
             if self.terminate_flag:
                 print('\nServer terminated; Exiting keepalive thread')  # DEBUG
                 return
-            clients = [val.fileobj for val in self.sel.get_map().values() if val.fileobj != main_sock]
+            clients = [val.fileobj for val in self.sel.get_map().values() \
+                       if val.fileobj != main_sock]
             for client in clients:
                 self.send_keepalive(client)
 
@@ -253,8 +285,10 @@ class Server:
             main_sock.listen()
             print("looping")  # DEBUG
             try:
-                keepalive_thread = threading.Thread(target=self.send_keepalives, args=[main_sock])
-                keepalive_thread.start()  # TODO handle OS errors gracefully
+                keepalive_thread = threading.Thread(
+                    target=self.send_keepalives, args=[main_sock]
+                )
+                keepalive_thread.start()
             except OSError as e:
                 return self.setup_err(e)
             self.mainloop(main_sock)
@@ -264,10 +298,10 @@ class Server:
             while True:
                 events = self.sel.select(timeout=TIMEOUT)
                 for key, _ in events:
-                    if key.fileobj == main_sock:  # new client (this should be a hello pkt)
+                    if key.fileobj == main_sock:  # new client
                         self.accept_new_user(main_sock)
                     else:  # established client
-                        # (this should be a keepalive, msg, err, join, leave, or list pkt)
+                        # (keepalive, msg, err, join, leave, or list pkt)
                         client_sock = key.fileobj
                         this_user = None
                         for user in self.users:
@@ -275,7 +309,8 @@ class Server:
                                 this_user = user
                                 break
                         if this_user is None:
-                            print(f'ERROR: could not find user with socket {client_sock}')  # ERR
+                            print(f'ERROR: could not find user \
+                                  with socket {client_sock}')  # ERR
                             continue
                         self.receive_from_client(this_user)
         except KeyboardInterrupt as kbi:
@@ -295,46 +330,67 @@ class Server:
             payload_bytes = this_user.sock.recv(header_obj.length)
             packet_bytes = header_bytes + payload_bytes
             msg_obj = None
+
             if header_obj.opcode == IRC_KEEPALIVE:
-                print(f'received keepalive from {this_user.sock.getpeername()}') # DEBUG
+                print(f'received keepalive from \
+                      {this_user.sock.getpeername()}') # DEBUG
                 # RFC does not specify that we have to do anything here
                 # only that we MUST send keepalives and SHOULD receive them
+
             elif header_obj.opcode == IRC_SENDMSG:
                 msg_obj = IrcPacketSendMsg().from_bytes(packet_bytes)
-                print(f'received sendmsg from {this_user.sock.getpeername()}')  # DEBUG
+                print(f'received sendmsg from \
+                      {this_user.sock.getpeername()}')  # DEBUG
                 self.send_msg(this_user, msg_obj)
+
             elif header_obj.opcode == IRC_SENDPRIVMSG:
                 msg_obj = IrcPacketSendPrivMsg().from_bytes(packet_bytes)
-                print(f'received send priv msg from {this_user.sock.getpeername()}')  # DEBUG
+                print(f'received send priv msg from \
+                      {this_user.sock.getpeername()}')  # DEBUG
                 self.send_priv_msg(this_user, msg_obj)
+
             elif header_obj.opcode == IRC_ERR:
-                print(f'received err from {this_user.sock.getpeername()}')  # DEBUG
+                print(f'received err from \
+                      {this_user.sock.getpeername()}')  # DEBUG
                 msg_obj = IrcPacketErr().from_bytes(packet_bytes)
                 self.react_to_client_err(this_user, msg_obj)
+
             elif header_obj.opcode == IRC_JOINROOM:
-                print(f'received join from {this_user.sock.getpeername()}')  # DEBUG
+                print(f'received join from \
+                      {this_user.sock.getpeername()}')  # DEBUG
                 msg_obj = IrcPacketJoinRoom().from_bytes(packet_bytes)
                 self.add_user_to_room(this_user, msg_obj)
+
             elif header_obj.opcode == IRC_LEAVEROOM:
-                print(f'received leave from {this_user.sock.getpeername()}')  # DEBUG
+                print(f'received leave from \
+                      {this_user.sock.getpeername()}')  # DEBUG
                 msg_obj = IrcPacketLeaveRoom().from_bytes(packet_bytes)
                 self.remove_user_from_room(this_user, msg_obj.payload)
+
             elif header_obj.opcode == IRC_LISTROOMS:
-                print(f'received listrooms from {this_user.sock.getpeername()}')  # DEBUG
+                print(f'received listrooms from \
+                      {this_user.sock.getpeername()}')  # DEBUG
                 self.send_room_list(this_user)
+
             elif header_obj.opcode == IRC_LISTUSERS:
-                print(f'received listusers from {this_user.sock.getpeername()}')  # DEBUG
+                print(f'received listusers from \
+                      {this_user.sock.getpeername()}')  # DEBUG
                 msg_obj = IrcPacketListUsers().from_bytes(packet_bytes)
                 self.user_requests_user_list(this_user, msg_obj)
+
             else:
                 print(f'WARNING! OPCODE NOT KNOWN TO SERVER\nreceived opcode \
-                      {header_obj.opcode} from {this_user.sock.getpeername()};\nnot yet implemented!')  # DEBUG
+                      {header_obj.opcode} from {this_user.sock.getpeername()};\
+                        \nnot yet implemented!')  # DEBUG
+
         except IRCException as e:
-            print('ERROR: receive_from_client() caught an IRCException - malformed client packet?')  # ERR
+            print('ERROR: receive_from_client() caught an IRCException - \
+                  malformed client packet?')  # ERR
             self.close_and_clean(this_user.sock)
         except OSError as e:  # tried to read from a dead connection
             if this_user.sock.fileno() != -1:
-                print(f'Lost connection to {this_user.sock}; removing from server')  # DEBUG
+                print(f'Lost connection to {this_user.sock}; \
+                      removing from server')  # DEBUG
                 self.sel.unregister(this_user.sock)
             self.clean_userlist(this_user.sock)
             this_user.sock.close()
