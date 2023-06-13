@@ -5,8 +5,8 @@
 import socket
 import sys
 import threading
+import tkinter as tk
 from time import sleep
-import multiprocessing
 
 from conf import *
 
@@ -28,6 +28,24 @@ Command.    Functionality
 exit        To close the connection                                                        
 """
 
+
+def get_user_textinput(prompt):
+    root = tk.Tk()
+    root.geometry("300x80+40+40")
+    prompt_label = tk.Label(root, text=prompt)
+    prompt_label.pack()
+    input_box = tk.Entry(root)
+    user_input = ''
+    def input_from_box(event):
+        nonlocal user_input
+        user_input = input_box.get()
+        root.destroy()
+    input_box.pack()
+    input_box.focus_set()
+    input_box.bind('<Return>', input_from_box)
+    print('Waiting for user input...')
+    root.mainloop()
+    return user_input
 
 class Client:
 
@@ -226,7 +244,7 @@ class Client:
     def join_create_room(self, input_room=None):
         room_name = input_room
         if room_name is None:
-            room_name = input('Enter room name > ')
+            room_name = get_user_textinput('Enter room name > ')
         try:
             packet = IrcPacketJoinRoom(room_name=room_name)
         except IRCException as e:
@@ -254,7 +272,7 @@ class Client:
         if len(room_list) == 0:
             print('No rooms to join.')
             return
-        input_str = input("Enter the indices separated by commas > ")
+        input_str = get_user_textinput("Enter the indices separated by commas > ")
         indices = input_str.split(",")
         for index in indices:
             try:
@@ -279,7 +297,7 @@ class Client:
             return
         print(f'Current room : {self.current_room}.')
         print(f'Room List : {room_list}')
-        room_name = input('Enter room name you want to switch > ')
+        room_name = get_user_textinput('Enter room name you want to switch > ')
         if room_name not in room_list:
             print(f'Invalid room name: {room_name}')
         elif room_name in self.clients_room_list:
@@ -312,8 +330,7 @@ class Client:
             else:
                 room = self.current_room
         if message is None:
-            print(f'Enter message you want to send to {room} > ')
-            message = input()
+            message = get_user_textinput(f'Enter message you want to send to {room} > ')
         try:
             packet = IrcPacketSendMsg(payload=message, target_label=room)
             self.client_socket.sendall(packet.to_bytes());
@@ -329,9 +346,8 @@ class Client:
             return
         for index, element in enumerate(self.clients_room_list):
             print(f"[{index + 1}] {element}")
-        input_str = input("Enter the indices separated by commas >")
-        print(f'Enter message you want to send > ')
-        input_msg = input()
+        input_str = get_user_textinput("Enter the indices separated by commas >")
+        input_msg = get_user_textinput(f'Enter message you want to send > ')
         indices = input_str.split(",")
         try:
             for index in indices:
@@ -345,9 +361,8 @@ class Client:
             print(f"Invalid input : '{index}'")
 
     def send_priv_msg(self):
-        target_label = input('Who do you want to send message? > ')
-        print(f'Enter message you want to send to {target_label} > ')
-        message = input()
+        target_label = get_user_textinput('Who do you want to send message? > ')
+        message = get_user_textinput(f'Enter message you want to send to {target_label} > ')
         try:
             packet = IrcPacketSendPrivMsg(payload=message, sending_user=self.client_name, target_label=target_label)
             self.client_socket.sendall(packet.to_bytes())
@@ -357,7 +372,7 @@ class Client:
             return
 
     def create_connection(self):
-        self.client_name = input('Input your name > ')
+        self.client_name = get_user_textinput('Input your name > ')
         server_address = ('', IRC_SERVER_PORT)
 
         try:
@@ -428,7 +443,7 @@ class Client:
             else:
                 try:
 
-                    user_input = input('GIVE INPUT > ')
+                    user_input = get_user_textinput('MAIN MENU > ')
                     user_input = user_input.strip()
 
                     # 0 list all the available rooms ✅
