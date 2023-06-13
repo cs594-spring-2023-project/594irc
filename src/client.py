@@ -43,7 +43,6 @@ def get_user_textinput(prompt):
     input_box.pack()
     input_box.focus_set()
     input_box.bind('<Return>', input_from_box)
-    print('Waiting for user input...')
     root.mainloop()
     return user_input
 
